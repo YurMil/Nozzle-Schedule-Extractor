@@ -65,7 +65,8 @@ The application layer owns the workflow and interfaces. Infrastructure implement
 `ExtractionService.CreateDefault` wires:
 
 1. `WPatternReportFinder`
-2. `PypdfReportTextExtractor`
+2. `FallbackReportTextExtractor` over `PdfPlumberReportTextExtractor` (primary,
+   layout-aware) and `PypdfReportTextExtractor` (fallback)
 3. `VvdNozzleParser`
 4. `TsvScheduleWriter`
 5. `XlsxScheduleWriter`

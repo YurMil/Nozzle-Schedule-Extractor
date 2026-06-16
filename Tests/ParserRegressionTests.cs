@@ -17,6 +17,7 @@ namespace NozzleScheduleExtractor
                 BomOverridesNozzleListAndCopyNotes(fixtureRoot);
                 PadDoesNotOverwriteNozzleMaterial(fixtureRoot);
                 DetailPageFillsFallbacksAndTableLoads(fixtureRoot);
+                FallbackExtractorPrefersFirstUsableResult();
                 Console.WriteLine("PASS: " + _assertions + " assertions");
                 return 0;
             }
@@ -81,6 +82,48 @@ namespace NozzleScheduleExtractor
             Equal("N.3 Fx max abs", "-3,2", n3.Loads["Fx"]);
             Equal("N.3 Fy max abs", "4,1", n3.Loads["Fy"]);
             Equal("N.3 Mz max abs", "-1,2", n3.Loads["Mz"]);
+        }
+
+        private static void FallbackExtractorPrefersFirstUsableResult()
+        {
+            // Primary throws (e.g. pdfplumber not installed) -> falls back to secondary.
+            Equal("fallback on throw", "secondary",
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => { throw new Exception("boom"); }),
+                    new StubExtractor(() => "secondary")).ExtractText("x"));
+
+            // Primary returns blank -> falls back to secondary.
+            Equal("fallback on blank", "secondary",
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => "   "),
+                    new StubExtractor(() => "secondary")).ExtractText("x"));
+
+            // Primary returns usable text -> secondary is never consulted.
+            Equal("prefers primary", "primary",
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => "primary"),
+                    new StubExtractor(() => { throw new Exception("must not run"); })).ExtractText("x"));
+
+            // All extractors throw -> the last error surfaces.
+            string message = "";
+            try
+            {
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => { throw new Exception("first"); }),
+                    new StubExtractor(() => { throw new Exception("last"); })).ExtractText("x");
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+            }
+            Equal("rethrows last error", "last", message);
+        }
+
+        private sealed class StubExtractor : IReportTextExtractor
+        {
+            private readonly Func<string> _result;
+            public StubExtractor(Func<string> result) { _result = result; }
+            public string ExtractText(string reportPath) { return _result(); }
         }
 
         private static List<NozzleRow> ParseFixture(string fixtureRoot, string fileName)

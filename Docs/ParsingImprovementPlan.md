@@ -75,17 +75,21 @@ ParseHistory → ParseNozzleList → ParseBom → ParseMawpFlanges
 
 ### Этап 1 — Layout-aware извлечение таблиц (наибольший эффект)
 Проблема №1 решается на уровне извлечения, а не регулярок.
-- Добавить адаптер `PdfPlumberReportTextExtractor : IReportTextExtractor`
-  (порт уже есть), использующий `pdfplumber`:
-  - `page.extract_tables()` для таблиц нагрузок и Nozzle List;
-  - для текстовых секций — реконструкцию строк/колонок по координатам слов
-    (`page.extract_words()` с группировкой по `top`/`x0`).
-- Сериализовать таблицы в детерминированный формат (TSV-блоки с явными
-  координатами), который парсер разбирает по позициям колонок, а не по пробелам.
-- `ExtractionService.CreateDefault` оставляет `pypdf` как fallback, если
-  `pdfplumber` не нашёл таблиц.
-- **Тесты:** добавить фикстуры с «съехавшими» колонками, которые ломают текущий
-  парсер, и убедиться, что layout-aware путь их вытягивает.
+
+**Итерация 1 ✅ (выполнено, см. §5)** — реконструкция строк по координатам слов:
+- `PdfPlumberReportTextExtractor : IReportTextExtractor` на `pdfplumber`
+  (`page.extract_words()` с группировкой слов в строки по `top` и сортировкой по
+  `x0`). Это держит строки таблиц нагрузок на одной линии с детерминированными
+  пробелами — ровно то, что ожидает текущий `VvdNozzleParser`.
+- Page-маркеры `<<<PAGE n>>>` сохранены → выход структурно совместим с pypdf.
+- `FallbackReportTextExtractor` делает pdfplumber основным, pypdf — резервным
+  (при отсутствии пакета/пустом выводе).
+
+**Итерация 2 (следующее)** — переход на структурированные таблицы:
+- `page.extract_tables()` для таблиц нагрузок и Nozzle List; сериализация в
+  детерминированный блок (явные позиции колонок), который парсер читает по
+  колонкам, а не по пробелам.
+- Фикстуры с «съехавшими» колонками, ломающие старый путь, как регресс-контроль.
 
 ### Этап 2 — Провенанс, уверенность и валидация
 - Заменить строковые поля `NozzleRow` на тип `Field { Value, Source, Confidence }`
@@ -141,3 +145,17 @@ ParseHistory → ParseNozzleList → ParseBom → ParseMawpFlanges
 Регрессионные тесты не меняли поведение на существующих фикстурах (ветка
 `DATA FOR NOZZLE:` в `FindNozzleIdNearLoadTable` срабатывает раньше fallback).
 Сборка/тесты под .NET Framework (`build-tests.ps1`) запускаются на Windows-раннере.
+
+## 5. Сделано в этом проходе (Этап 1, итерация 1)
+
+- `Infrastructure/Pdf/PdfPlumberTextExtractor.cs` — Python-скрипт на `pdfplumber`,
+  реконструирующий строки по координатам слов (кластеризация по `top`,
+  сортировка по `x0`), с сохранением page-маркеров.
+- `PdfPlumberReportTextExtractor` — адаптер порта `IReportTextExtractor`.
+- `FallbackReportTextExtractor` — пробует экстракторы по порядку, возвращает
+  первый непустой результат, при исключении/пустом выводе переходит к
+  следующему. Подключён в `ExtractionService.CreateDefault`: pdfplumber → pypdf.
+- `requirements.txt` с `pdfplumber`/`pypdf`; обновлены README и Architecture.md.
+- Тест `FallbackExtractorPrefersFirstUsableResult` (без Python) проверяет
+  деградацию: throw → fallback, blank → fallback, usable → primary, all-fail →
+  проброс последней ошибки.

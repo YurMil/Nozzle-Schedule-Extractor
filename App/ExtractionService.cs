@@ -53,7 +53,9 @@ namespace NozzleScheduleExtractor
         {
             return new ExtractionService(
                 new WPatternReportFinder(),
-                new PypdfReportTextExtractor(python),
+                new FallbackReportTextExtractor(
+                    new PdfPlumberReportTextExtractor(python),
+                    new PypdfReportTextExtractor(python)),
                 new VvdNozzleParser(),
                 new INozzleScheduleWriter[]
                 {

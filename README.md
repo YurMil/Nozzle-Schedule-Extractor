@@ -23,6 +23,18 @@ See `Docs/Architecture.md` for the module map and extension points.
    - `Mt` -> `Mz`
 4. `DATA FOR NOZZLE` detail pages fill missing geometry, material, and loads.
 
+## Python dependencies
+
+PDF text extraction shells out to Python. Install the packages once:
+
+```powershell
+pip install -r requirements.txt
+```
+
+`pdfplumber` is the primary, layout-aware extractor (it reconstructs table rows
+from word coordinates); `pypdf` is the automatic fallback if `pdfplumber` is
+unavailable or yields no text.
+
 ## Build
 
 ```powershell
