@@ -9,7 +9,10 @@ namespace NozzleScheduleExtractor
     {
         public static string Normalize(string value)
         {
-            return Regex.Replace(value ?? "", @"\s+", " ").Trim();
+            // Strip the invisible soft hyphen (U+00AD) that PDF extraction can leave inside
+            // tokens such as "do=" before collapsing whitespace.
+            value = (value ?? "").Replace("­", "");
+            return Regex.Replace(value, @"\s+", " ").Trim();
         }
 
         public static IEnumerable<string> Lines(string text)
