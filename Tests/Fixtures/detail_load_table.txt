@@ -1,0 +1,15 @@
+<<<PAGE 1>>>
+DATA FOR NOZZLE: N.3
+Size of Flange and Nozzle: DN 80
+OUTSIDE NOZZLE DIAMETER text :deb 88,9 mm
+NOMINAL NOZZLE THICKNESS text :enb 5,49 mm
+EN 10216-5:2021, 1.4404
+Pressure Class: EN1092 :Class PN 10
+Flange Type: PL
+Table NOZZLE LOADS
+Radial Load Fz kN 1 -9 3
+Longitudinal Moment My kNm 0,1 -0,7 0,3
+Circumferential Moment: Mx kNm 1,1 -2,4 0,2
+Longitudinal Shear Force Fl kN 0,5 -3,2 2,1
+Circumferential Shear Force Fc kN -1,3 4,1 2,2
+Torsional Moment Mt kNm 0,6 -1,2 0,4

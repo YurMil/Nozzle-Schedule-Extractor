@@ -1,0 +1,4 @@
+Bill of Materials
+N.2 1 Nozzle, Seamless Pipe - Drain DN 25 do=33,7,wt=3,38 ID 1, EN 10216-5:2021, 1.4301
+N.2 1 Reinforcement Pad PAD OD=120,ID=34,width=8 ID 2, EN 10028-7:2016, 1.9999
+Center of Gravity

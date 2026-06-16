@@ -1,0 +1,36 @@
+name: GUI Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-gui:
+    name: Build GUI with SOLIDWORKS interop
+    runs-on:
+      - self-hosted
+      - Windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check SOLIDWORKS interop availability
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\SolidWorks.Interop.sldworks.dll')) {
+            Write-Error 'SOLIDWORKS interop assemblies are not available. Run this workflow on a self-hosted Windows runner with SOLIDWORKS installed.'
+          }
+
+      - name: Build GUI
+        shell: pwsh
+        run: ./build-gui.ps1
+
+      - name: Upload GUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nozzle-schedule-extractor-gui
+          path: |
+            bin/NozzleScheduleExtractor.Gui.exe
+            bin/SolidWorks.Interop.sldworks.dll
+            bin/SolidWorks.Interop.swconst.dll
+          if-no-files-found: error

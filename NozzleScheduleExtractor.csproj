@@ -1,0 +1,19 @@
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <RootNamespace>NozzleScheduleExtractor</RootNamespace>
+    <AssemblyName>NozzleScheduleExtractor</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="App\**\*.cs" />
+    <Compile Include="Domain\**\*.cs" />
+    <Compile Include="Infrastructure\**\*.cs" />
+    <Compile Include="Shared\**\*.cs" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

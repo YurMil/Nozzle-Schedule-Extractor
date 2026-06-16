@@ -1,0 +1,16 @@
+N.1 Nozzle, Seamless Pipe Old service 01 Jan. 2026
+Design Data & Process Information
+
+Nozzle List
+N.1 Fallback Service DN40 EN1092 PN16 LJ
+Nozzle Loads
+
+Bill of Materials
+N.1 1 Flange:EN 1092 PN 40 WN - Type
+N.1 1 Nozzle, Seamless Pipe - Vent Gas DN 50 do=60,3,wt=3,91 ID 1, EN 10216-5:2021, 1.4301
+Center of Gravity
+
+Nozzle Loads
+N.1 Load Case 1 Fz = -5.0 kN, My = 2.50 kNm, Mx = -3,75 kNm, Fl = 1.2 kN, Fc = -4.4 kN, Mt = 0.5
+
+N.4 Spare connection (Copy of N.1)

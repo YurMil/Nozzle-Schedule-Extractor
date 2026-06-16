@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-and-test:
+    name: Build and regression tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build CLI
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Run parser regression tests
+        shell: pwsh
+        run: ./build-tests.ps1
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nozzle-schedule-extractor-cli
+          path: bin/NozzleScheduleExtractor.exe
+          if-no-files-found: error

@@ -1,0 +1,23 @@
+# Build outputs
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs and temp files
+*.log
+*.tmp
+*.TMP
+
+# Generated extractor outputs
+*_nozzle_schedule.tsv
+*_nozzle_schedule.xlsx
+
+# Local report samples can contain customer data.
+*.pdf
