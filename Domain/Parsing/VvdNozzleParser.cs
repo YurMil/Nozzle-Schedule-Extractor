@@ -24,6 +24,8 @@ namespace NozzleScheduleExtractor
             _rows.Clear();
             ParseHistory(text);
             ParseNozzleList(text);
+            ParseNozzleListStateful(text);
+            ParseMawpSummaries(text);
             ParseBom(text);
             ParseMawpFlanges(text);
             ParseNozzleLoads(text);
@@ -112,11 +114,133 @@ namespace NozzleScheduleExtractor
             }
         }
 
+        private void ParseNozzleListStateful(string text)
+        {
+            foreach (string block in BlocksBetween(text, "Nozzle List", new[] { "Nozzle Loads", "Maximum Component Utilization", "Appendix", "Calculation Cover Sheet" }))
+            {
+                string pendingStd = "";
+                string pendingClass = "";
+                string pendingType = "";
+                bool pendingDn = false;
+                NozzleRow pendingRow = null;
+                bool waitingForNumericSize = false;
+                bool waitingForDescription = false;
+
+                foreach (string raw in TextUtil.Lines(block))
+                {
+                    string line = TextUtil.Normalize(raw);
+                    if (TextUtil.IsBlank(line)) continue;
+
+                    Match stdLine = Regex.Match(line, @"^(?<dn>DN\s+)?(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.\d)\s+(?:(?:Class\s+)?(?<asme>\d+)\s+lbs|PN\s*(?<pn>\d+))\s+(?<type>WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
+                    if (stdLine.Success)
+                    {
+                        pendingDn = stdLine.Groups["dn"].Success;
+                        pendingStd = NormalizeStandard(stdLine.Groups["std"].Value);
+                        pendingClass = stdLine.Groups["pn"].Success ? "PN" + stdLine.Groups["pn"].Value : "Class " + stdLine.Groups["asme"].Value;
+                        pendingType = MapFlangeType(stdLine.Groups["type"].Value);
+                        continue;
+                    }
+
+                    Match idLine = Regex.Match(line, @"^(?<id>N\.\d+[A-Z*]*)\s+(?<rest>.+)$", RegexOptions.IgnoreCase);
+                    if (idLine.Success)
+                    {
+                        NozzleRow row = Get(idLine.Groups["id"].Value);
+                        pendingRow = row;
+                        waitingForNumericSize = false;
+                        waitingForDescription = false;
+
+                        if (!TextUtil.IsBlank(pendingStd)) { row.Standard = pendingStd; row.Observe("Standard", pendingStd, Source.NozzleList); }
+                        if (!TextUtil.IsBlank(pendingClass)) { row.PressureClass = pendingClass; row.Observe("PressureClass", pendingClass, Source.NozzleList); }
+                        if (!TextUtil.IsBlank(pendingType)) { row.NozzleType = pendingType; row.Observe("NozzleType", pendingType, Source.NozzleList); }
+
+                        string rest = idLine.Groups["rest"].Value;
+                        Match inlineDn = Regex.Match(rest, @"\bDN\s*(?<size>\d+)\b", RegexOptions.IgnoreCase);
+                        if (inlineDn.Success)
+                        {
+                            row.Size = "DN" + inlineDn.Groups["size"].Value;
+                            row.Observe("Size", row.Size, Source.NozzleList);
+                        }
+                        else
+                        {
+                            Match inlineStd = Regex.Match(rest, @"^DN\s+(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.\d)\s+(?:(?:Class\s+)?(?<asme>\d+)\s+lbs|PN\s*(?<pn>\d+))\s+(?<type>WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
+                            if (inlineStd.Success)
+                            {
+                                row.Standard = NormalizeStandard(inlineStd.Groups["std"].Value);
+                                row.Observe("Standard", row.Standard, Source.NozzleList);
+                                row.PressureClass = inlineStd.Groups["pn"].Success ? "PN" + inlineStd.Groups["pn"].Value : "Class " + inlineStd.Groups["asme"].Value;
+                                row.Observe("PressureClass", row.PressureClass, Source.NozzleList);
+                                row.NozzleType = MapFlangeType(inlineStd.Groups["type"].Value);
+                                row.Observe("NozzleType", row.NozzleType, Source.NozzleList);
+                                waitingForNumericSize = true;
+                                waitingForDescription = true;
+                                continue;
+                            }
+
+                            Match numericSize = Regex.Match(rest, @"^(?<desc>.*?)(?<size>\d+(?:[\.,]\d+)?)\s+\d+(?:[\.,]\d+)?\s+[-\d]", RegexOptions.IgnoreCase);
+                            if (numericSize.Success && !pendingDn)
+                            {
+                                row.Size = "D" + TextUtil.Fmt(numericSize.Groups["size"].Value);
+                                row.Observe("Size", row.Size, Source.NozzleList);
+                                SetDescription(row, numericSize.Groups["desc"].Value);
+                            }
+                            else
+                            {
+                                Match desc = Regex.Match(rest, @"^(?<desc>.*?)(?:\s+-?\d+(?:[\.,]\d+)?\b|$)");
+                                string description = desc.Success ? TextUtil.Normalize(desc.Groups["desc"].Value) : "";
+                                if (!TextUtil.IsBlank(description) && !Regex.IsMatch(description, @"^DN$", RegexOptions.IgnoreCase))
+                                    SetDescription(row, description);
+                                else
+                                    waitingForDescription = true;
+                                waitingForNumericSize = pendingDn;
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (pendingRow != null && waitingForDescription)
+                    {
+                        Match desc = Regex.Match(line, @"^(?<desc>[A-Za-z][A-Za-z0-9 _./-]*?)(?:\s+-?\d+(?:[\.,]\d+)?\b|$)");
+                        if (desc.Success && !Regex.IsMatch(desc.Groups["desc"].Value, @"^(Raised Face|DN)$", RegexOptions.IgnoreCase))
+                        {
+                            SetDescription(pendingRow, desc.Groups["desc"].Value);
+                            waitingForDescription = false;
+                        }
+                    }
+
+                    if (pendingRow != null && waitingForNumericSize)
+                    {
+                        Match size = Regex.Match(line, @"^(?<size>\d+)\s+Raised Face\b", RegexOptions.IgnoreCase);
+                        if (size.Success)
+                        {
+                            pendingRow.Size = "DN" + size.Groups["size"].Value;
+                            pendingRow.Observe("Size", pendingRow.Size, Source.NozzleList);
+                            waitingForNumericSize = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void ParseMawpSummaries(string text)
+        {
+            foreach (string raw in TextUtil.Lines(text))
+            {
+                string line = TextUtil.Normalize(raw);
+                Match m = Regex.Match(line, @"^(?<id>N\.\d+[A-Z*]*)\s+(?<kind>Nozzle,\s*Seamless Pipe|Nozzle,\s*Plate Body|Reinforcement Ring)\s+(?<desc>.*?)\s+\d+(?:[\.,]\d+)?\s+MPa\b", RegexOptions.IgnoreCase);
+                if (!m.Success) continue;
+
+                NozzleRow row = Get(m.Groups["id"].Value);
+                row.ComponentKind = TextUtil.Normalize(m.Groups["kind"].Value);
+                SetDescription(row, m.Groups["desc"].Value);
+            }
+        }
+
         private void ParseBom(string text)
         {
             foreach (string block in BlocksBetween(text, "Bill of Materials", new[] { "Center of Gravity", "MAWP", "Test Pressure", "Nozzle List", "Maximum Component Utilization", "Appendix" }))
             {
                 ParseBomBlock(block);
+                ParseBomLines(block);
             }
 
             string compact = TextUtil.Normalize(text);
@@ -134,9 +258,9 @@ namespace NozzleScheduleExtractor
                 NozzleRow row = Get(m.Groups["id"].Value);
                 row.ComponentKind = TextUtil.IsBlank(row.ComponentKind) ? "Nozzle" : row.ComponentKind;
                 SetDescription(row, m.Groups["desc"].Value);
-                if (m.Groups["size"].Success) row.Size = m.Groups["size"].Value.Replace(" ", "");
-                row.PipeDimension = "D" + TextUtil.Fmt(m.Groups["od"].Value) + " x " + TextUtil.Fmt(m.Groups["wt"].Value);
-                row.Material = m.Groups["mat"].Value;
+                if (m.Groups["size"].Success && TextUtil.IsBlank(row.Size)) row.Size = m.Groups["size"].Value.Replace(" ", "");
+                if (TextUtil.IsBlank(row.PipeDimension)) row.PipeDimension = "D" + TextUtil.Fmt(m.Groups["od"].Value) + " x " + TextUtil.Fmt(m.Groups["wt"].Value);
+                if (TextUtil.IsBlank(row.Material)) row.Material = m.Groups["mat"].Value;
                 if (TextUtil.IsBlank(row.Standard)) row.Standard = NormalizeStandard(m.Groups["matstd"].Value);
             }
 
@@ -149,7 +273,7 @@ namespace NozzleScheduleExtractor
                     row.PipeDimension = "D" + TextUtil.Fmt(m.Groups["od"].Value) + " x " + TextUtil.Fmt(m.Groups["wt"].Value);
                 if (TextUtil.IsBlank(row.Size))
                     row.Size = "D" + TextUtil.Fmt(m.Groups["idim"].Value);
-                row.Material = m.Groups["mat"].Value;
+                if (TextUtil.IsBlank(row.Material)) row.Material = m.Groups["mat"].Value;
                 if (TextUtil.IsBlank(row.Standard)) row.Standard = NormalizeStandard(m.Groups["matstd"].Value);
             }
         }
@@ -159,6 +283,161 @@ namespace NozzleScheduleExtractor
             string compact = TextUtil.Normalize(block);
             foreach (Match m in BomComponentRx.Matches(compact))
                 ParseBomComponent(m.Groups["id"].Value, m.Groups["chunk"].Value);
+        }
+
+        private void ParseBomLines(string block)
+        {
+            string pendingKind = "";
+            string pendingMaterialStandard = "";
+            string pendingMaterial = "";
+            string pendingFlangeStandard = "";
+            string pendingFlangeType = "";
+            NozzleRow pendingFlangeRow = null;
+            NozzleRow pendingGeometryRow = null;
+
+            foreach (string raw in TextUtil.Lines(block))
+            {
+                string line = TextUtil.Normalize(raw);
+                if (TextUtil.IsBlank(line)) continue;
+
+                Match typeHint = Regex.Match(line, @"\b(?<type>WN|LJ|RT|PL)\s+-\s+Type", RegexOptions.IgnoreCase);
+                if (typeHint.Success)
+                    pendingFlangeType = MapFlangeType(typeHint.Groups["type"].Value);
+
+                Match componentMaterial = Regex.Match(line, @"(?<kind>Nozzle,\s*Seamless Pipe|Nozzle,\s*Plate Body|Reinforcement Ring(?:-[A-Za-z ]+)?)\s*(?:-\s*)?(?:DN\s*(?<dn>\d+)\s+)?ID\s+\d+,\s+(?<std>EN\s+\d{5}(?:-\d)?:\d{4}|EN\s+\d{5}(?:-\d)?),\s+(?<mat>1\.\d{4})", RegexOptions.IgnoreCase);
+                if (componentMaterial.Success)
+                {
+                    pendingKind = TextUtil.Normalize(componentMaterial.Groups["kind"].Value);
+                    pendingMaterialStandard = NormalizeStandard(componentMaterial.Groups["std"].Value);
+                    pendingMaterial = componentMaterial.Groups["mat"].Value;
+                    pendingGeometryRow = null;
+                    continue;
+                }
+
+                Match materialOnly = Regex.Match(line, @"^ID\s+\d+,\s+(?<std>EN\s+\d{5}(?:-\d)?:\d{4}|EN\s+\d{5}(?:-\d)?),\s+(?<mat>1\.\d{4})", RegexOptions.IgnoreCase);
+                if (materialOnly.Success)
+                {
+                    pendingMaterialStandard = NormalizeStandard(materialOnly.Groups["std"].Value);
+                    pendingMaterial = materialOnly.Groups["mat"].Value;
+                    continue;
+                }
+
+                Match flangeStd = Regex.Match(line, @"Flange:(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.\d)", RegexOptions.IgnoreCase);
+                if (flangeStd.Success)
+                {
+                    pendingFlangeStandard = NormalizeStandard(flangeStd.Groups["std"].Value);
+                    if (typeHint.Success)
+                        pendingFlangeType = MapFlangeType(typeHint.Groups["type"].Value);
+                    pendingKind = "";
+                    pendingMaterialStandard = "";
+                    pendingMaterial = "";
+                    pendingGeometryRow = null;
+                    continue;
+                }
+
+                if (pendingFlangeRow != null)
+                {
+                    Match pendingPn = Regex.Match(line, @"\bPN\s*(?<pn>\d+)\b", RegexOptions.IgnoreCase);
+                    if (pendingPn.Success)
+                    {
+                        pendingFlangeRow.PressureClass = "PN" + pendingPn.Groups["pn"].Value;
+                        pendingFlangeRow.Observe("PressureClass", pendingFlangeRow.PressureClass, Source.Bom);
+                    }
+
+                    Match pendingDnMatch = Regex.Match(line, @"^DN\s*(?<dn>\d+)\b", RegexOptions.IgnoreCase);
+                    if (pendingDnMatch.Success)
+                    {
+                        pendingFlangeRow.Size = "DN" + pendingDnMatch.Groups["dn"].Value;
+                        pendingFlangeRow.Observe("Size", pendingFlangeRow.Size, Source.Bom);
+                    }
+                }
+
+                if (pendingGeometryRow != null &&
+                    !Regex.IsMatch(line, @"^N\.\d+[A-Z*]*\s+1\b", RegexOptions.IgnoreCase) &&
+                    line.IndexOf("do=", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    ApplyBomNozzleGeometry(pendingGeometryRow, line);
+                    ApplyPendingMaterial(pendingGeometryRow, pendingMaterialStandard, pendingMaterial, true);
+                    Match service = Regex.Match(line, @"^(?<service>[A-Za-z][A-Za-z0-9 _./-]*?)\s+do=", RegexOptions.IgnoreCase);
+                    if (service.Success)
+                        SetDescription(pendingGeometryRow, service.Groups["service"].Value);
+                    continue;
+                }
+
+                Match idLine = Regex.Match(line, @"^(?<id>N\.\d+[A-Z*]*)\s+1(?:\s+(?<rest>.*))?$", RegexOptions.IgnoreCase);
+                if (!idLine.Success) continue;
+
+                NozzleRow row = Get(idLine.Groups["id"].Value);
+                string rest = TextUtil.Normalize(idLine.Groups["rest"].Value);
+
+                if (rest.IndexOf("flange", StringComparison.OrdinalIgnoreCase) >= 0 || !TextUtil.IsBlank(pendingFlangeStandard))
+                {
+                    if (!TextUtil.IsBlank(pendingFlangeStandard))
+                    {
+                        row.Standard = pendingFlangeStandard;
+                        row.Observe("Standard", row.Standard, Source.Bom);
+                    }
+                    if (!TextUtil.IsBlank(pendingFlangeType))
+                    {
+                        row.NozzleType = pendingFlangeType;
+                        row.Observe("NozzleType", row.NozzleType, Source.Bom);
+                    }
+                    pendingFlangeRow = row;
+                    if (rest.IndexOf("flange", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        pendingKind = "";
+                        pendingMaterialStandard = "";
+                        pendingMaterial = "";
+                    }
+                }
+
+                if (rest.IndexOf("Reinforcement Ring", StringComparison.OrdinalIgnoreCase) >= 0 || pendingKind.StartsWith("Reinforcement Ring", StringComparison.OrdinalIgnoreCase))
+                {
+                    row.ComponentKind = rest.IndexOf("Reinforcement Ring", StringComparison.OrdinalIgnoreCase) >= 0 ? ExtractRingKind(rest) : pendingKind;
+                    SetDescription(row, ExtractServiceFromBomDescription(row.ComponentKind));
+                    ApplyBomRingGeometry(row, rest);
+                    ApplyPendingMaterial(row, pendingMaterialStandard, pendingMaterial, true);
+                    pendingGeometryRow = null;
+                    pendingKind = "";
+                    pendingMaterialStandard = "";
+                    pendingMaterial = "";
+                    continue;
+                }
+
+                if (rest.IndexOf("do=", StringComparison.OrdinalIgnoreCase) >= 0 || pendingKind.StartsWith("Nozzle", StringComparison.OrdinalIgnoreCase))
+                {
+                    row.ComponentKind = Regex.IsMatch(rest, @"^Nozzle", RegexOptions.IgnoreCase)
+                        ? ExtractComponentKind(rest)
+                        : (TextUtil.IsBlank(pendingKind) ? "Nozzle" : pendingKind);
+                    ApplyBomNozzleGeometry(row, rest);
+                    ApplyPendingMaterial(row, pendingMaterialStandard, pendingMaterial, true);
+                    pendingGeometryRow = row;
+                    pendingKind = "";
+                    pendingMaterialStandard = "";
+                    pendingMaterial = "";
+                }
+
+                Match pn = Regex.Match(rest, @"\bPN\s*(?<pn>\d+)\b", RegexOptions.IgnoreCase);
+                if (pn.Success) { row.PressureClass = "PN" + pn.Groups["pn"].Value; row.Observe("PressureClass", row.PressureClass, Source.Bom); }
+                Match dn = Regex.Match(rest, @"\bDN\s*(?<dn>\d+)\b", RegexOptions.IgnoreCase);
+                if (dn.Success) { row.Size = "DN" + dn.Groups["dn"].Value; row.Observe("Size", row.Size, Source.Bom); }
+            }
+        }
+
+        private static string ExtractRingKind(string text)
+        {
+            Match m = Regex.Match(text ?? "", @"(?<kind>Reinforcement Ring(?:-[A-Za-z ]+)?)", RegexOptions.IgnoreCase);
+            return m.Success ? TextUtil.Normalize(m.Groups["kind"].Value) : "Reinforcement Ring";
+        }
+
+        private static void ApplyPendingMaterial(NozzleRow row, string standard, string material, bool overwrite)
+        {
+            if (TextUtil.IsBlank(material)) return;
+            if (overwrite) row.Observe("Material", material, Source.Bom);
+            if (overwrite || TextUtil.IsBlank(row.Material))
+                row.Material = material;
+            if (!TextUtil.IsBlank(standard) && !IsFlangeStandard(row.Standard) && (overwrite || TextUtil.IsBlank(row.Standard)))
+                row.Standard = standard;
         }
 
         private void ParseBomComponent(string id, string chunk)

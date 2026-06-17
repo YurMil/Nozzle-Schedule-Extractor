@@ -18,6 +18,7 @@ obj/
 # Generated extractor outputs
 *_nozzle_schedule.tsv
 *_nozzle_schedule.xlsx
+*_nozzle_review.tsv
 
 # Local report samples can contain customer data.
 *.pdf

@@ -19,6 +19,7 @@ namespace NozzleScheduleExtractor
                 DetailPageFillsFallbacksAndTableLoads(fixtureRoot);
                 StructuredTableOverridesGarbledText(fixtureRoot);
                 ValidatorFlagsConflictsAndBadGeometry(fixtureRoot);
+                W2402601MultilineBomAndNozzleList(fixtureRoot);
                 HybridResolverStaysInertUntilEnabled();
                 FallbackExtractorPrefersFirstUsableResult();
                 Console.WriteLine("PASS: " + _assertions + " assertions");
@@ -119,6 +120,35 @@ namespace NozzleScheduleExtractor
             True("N.5 class conflict flagged", HasDiagnostic(n5, "PressureClass", "conflict"));
             True("N.5 geometry flagged", HasDiagnostic(n5, "PipeDimension", "thickness"));
         }
+
+        private static void W2402601MultilineBomAndNozzleList(string fixtureRoot)
+        {
+            List<NozzleRow> rows = ParseFixture(fixtureRoot, "w2402601_multiline_bom.txt");
+
+            NozzleRow n1 = Row(rows, "N.1");
+            Equal("W2402601 N.1 description", "Feed in", n1.Description);
+            Equal("W2402601 N.1 material", "1.0565", n1.Material);
+            Equal("W2402601 N.1 type", "LJ-FLG", n1.NozzleType);
+
+            NozzleRow n2 = Row(rows, "N.2*");
+            Equal("W2402601 N.2 description", "Feed out", n2.Description);
+            Equal("W2402601 N.2 material", "1.0565", n2.Material);
+
+            NozzleRow n3 = Row(rows, "N.3");
+            Equal("W2402601 N.3 size", "D2200", n3.Size);
+            Equal("W2402601 N.3 pipe", "D2478 x 200", n3.PipeDimension);
+            Equal("W2402601 N.3 material", "1.0571", n3.Material);
+
+            NozzleRow n4 = Row(rows, "N.4");
+            Equal("W2402601 N.4 type", "LJ-FLG", n4.NozzleType);
+            Equal("W2402601 N.4 material", "1.0571", n4.Material);
+
+            NozzleRow n11 = Row(rows, "N.11*");
+            Equal("W2402601 N.11 description", "Inspection", n11.Description);
+            Equal("W2402601 N.11 size", "DN150", n11.Size);
+            Equal("W2402601 N.11 material", "1.5415", n11.Material);
+        }
+
 
         private static bool HasDiagnostic(NozzleRow row, string field, string messagePart)
         {
