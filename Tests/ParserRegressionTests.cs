@@ -168,7 +168,7 @@ namespace NozzleScheduleExtractor
                     new StubExtractor(() => "primary"),
                     new StubExtractor(() => { throw new Exception("must not run"); })).ExtractText("x"));
 
-            // All extractors throw -> the last error surfaces.
+            // All extractors throw -> errors are aggregated (none swallowed).
             string message = "";
             try
             {
@@ -176,11 +176,17 @@ namespace NozzleScheduleExtractor
                     new StubExtractor(() => { throw new Exception("first"); }),
                     new StubExtractor(() => { throw new Exception("last"); })).ExtractText("x");
             }
-            catch (Exception ex)
+            catch (AggregateException ex)
             {
-                message = ex.Message;
+                message = string.Join(",", ex.InnerExceptions.Select(e => e.Message).ToArray());
             }
-            Equal("rethrows last error", "last", message);
+            Equal("aggregates all errors", "first,last", message);
+
+            // Marker-only output is treated as empty, so the fallback still runs.
+            Equal("marker-only falls back", "real",
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => "<<<PAGE 1>>>\n\n"),
+                    new StubExtractor(() => "real")).ExtractText("x"));
         }
 
         private sealed class StubExtractor : IReportTextExtractor

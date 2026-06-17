@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace NozzleScheduleExtractor
 {
@@ -31,7 +32,7 @@ namespace NozzleScheduleExtractor
         public string ExtractText(string reportPath)
         {
             string lastResult = "";
-            Exception lastError = null;
+            var errors = new List<Exception>();
 
             foreach (IReportTextExtractor extractor in _extractors)
             {
@@ -39,24 +40,35 @@ namespace NozzleScheduleExtractor
                 try
                 {
                     string text = extractor.ExtractText(reportPath);
-                    if (!TextUtil.IsBlank(text))
+                    if (HasContent(text))
                         return text;
 
                     lastResult = text;
-                    Log(name + " returned no text; trying next extractor.");
+                    Log(name + " produced no usable text; trying next extractor.");
                 }
                 catch (Exception ex)
                 {
-                    lastError = ex;
+                    errors.Add(ex);
                     Log(name + " failed (" + ex.Message + "); trying next extractor.");
                 }
             }
 
-            if (!TextUtil.IsBlank(lastResult))
+            if (HasContent(lastResult))
                 return lastResult;
-            if (lastError != null)
-                throw lastError;
+            if (errors.Count == 1)
+                throw errors[0];
+            if (errors.Count > 1)
+                throw new AggregateException("All text extractors failed.", errors);
             return lastResult;
+        }
+
+        // Page/table markers are emitted even when an extractor reads a valid PDF but finds
+        // no words. Strip them before judging whether there is real content, otherwise a
+        // marker-only result would suppress the fallback extractor.
+        private static bool HasContent(string text)
+        {
+            string stripped = Regex.Replace(text ?? "", @"<<<PAGE\s+\d+>>>|<<<TABLE>>>|<<<TABLE END>>>", " ");
+            return !TextUtil.IsBlank(stripped);
         }
 
         private void Log(string message)
