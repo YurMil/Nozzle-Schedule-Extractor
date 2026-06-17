@@ -23,6 +23,18 @@ See `Docs/Architecture.md` for the module map and extension points.
    - `Mt` -> `Mz`
 4. `DATA FOR NOZZLE` detail pages fill missing geometry, material, and loads.
 
+## Python dependencies
+
+PDF text extraction shells out to Python. Install the packages once:
+
+```powershell
+pip install -r requirements.txt
+```
+
+`pdfplumber` is the primary, layout-aware extractor (it reconstructs table rows
+from word coordinates); `pypdf` is the automatic fallback if `pdfplumber` is
+unavailable or yields no text.
+
 ## Build
 
 ```powershell
@@ -57,7 +69,10 @@ GUI:
 ```
 
 The program picks the newest `W#######*.pdf` matching the optional prefix and writes
-`*_nozzle_schedule.xlsx` plus `*_nozzle_schedule.tsv` next to the PDF.
+`*_nozzle_schedule.xlsx` plus `*_nozzle_schedule.tsv` next to the PDF. It also writes
+`*_nozzle_review.tsv` listing validation findings (bad geometry, DN/OD mismatch,
+source conflicts, missing fields) and a confidence level per nozzle. In the Excel
+file, cells with a validation warning are highlighted.
 
 In the GUI, use `Run Folder` to auto-pick the newest matching report in a folder,
 or `Run PDF` to parse the selected PDF directly. The lower table previews the

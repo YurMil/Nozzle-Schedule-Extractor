@@ -9,6 +9,16 @@ namespace NozzleScheduleExtractor
     {
         private readonly Dictionary<string, NozzleRow> _rows = new Dictionary<string, NozzleRow>(StringComparer.OrdinalIgnoreCase);
 
+        // Hoisted, compiled regexes for the hot full-text scans. Recreating these on every
+        // Parse() call was wasteful; the .NET internal cache only covers the inline Regex.* calls.
+        private static readonly RegexOptions Opts = RegexOptions.IgnoreCase | RegexOptions.Compiled;
+        private static readonly Regex BomFlangeRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+Flange:(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.5).{0,120}?(?:(?:Class\s+)?(?<asme>\d+)\s+lbs|PN\s*(?<pn>\d+)).{0,120}?\b(?<type>WN|LJ|RT|PL)\b", Opts);
+        private static readonly Regex BomNozzleRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+Nozzle,[^-]+-\s*(?<desc>.*?)(?<size>DN\s*\d+|\d+"")?\s+do=(?<od>[\d.,]+),wt=(?<wt>[\d.,]+).*?ID\s+\d+,\s+(?<matstd>EN\s+\d{5}(?:-\d)?:\d{4}),\s+(?<mat>1\.\d{4})", Opts);
+        private static readonly Regex BomRingRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+Reinforcement Ring-?\s*(?<desc>.*?)\s+do=(?<od>[\d.,]+),di=(?<idim>[\d.,]+).*?(?:wt|thk|s)=(?<wt>[\d.,]+).*?ID\s+\d+,\s+(?<matstd>EN\s+\d{5}(?:-\d)?:\d{4}),\s+(?<mat>1\.\d{4})", Opts);
+        private static readonly Regex BomComponentRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+(?<chunk>.*?)(?=\s+[A-Z]{1,3}\.?\d+(?:\.\d+)?[A-Z*]*\s+1\s+|$)", Opts);
+        private static readonly Regex LoadsSummaryRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s*.{0,150}?Load Case\s+\d+.{0,150}?Fz\s*=\s*(?<Fz>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*My\s*=\s*(?<My>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kNm,\s*Mx\s*=\s*(?<Mx>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kNm,\s*Fl\s*=\s*(?<Fx>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*Fc\s*=\s*(?<Fy>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*Mt\s*=\s*(?<Mz>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))", Opts);
+        private static readonly Regex BareIdRx = new Regex(@"\b(?<id>N\.\d+[A-Z*]*)\b", Opts);
+
         public List<NozzleRow> Parse(string text)
         {
             _rows.Clear();
@@ -18,8 +28,12 @@ namespace NozzleScheduleExtractor
             ParseMawpFlanges(text);
             ParseNozzleLoads(text);
             ParseDetailedSections(text);
+            ParseStructuredLoadTables(text);
             ApplyCopyNotes(text);
             InferMissingValues();
+
+            foreach (NozzleRow row in _rows.Values)
+                RowValidator.Validate(row);
 
             return _rows.Values
                 .OrderBy(r => TextUtil.DisplayNumberSortKey(r.Key))
@@ -70,11 +84,19 @@ namespace NozzleScheduleExtractor
                     {
                         NozzleRow row = Get(flanged.Groups["id"].Value);
                         SetDescription(row, flanged.Groups["desc"].Value);
-                        if (flanged.Groups["size"].Success) row.Size = flanged.Groups["size"].Value.Replace(" ", "");
+                        if (flanged.Groups["size"].Success)
+                        {
+                            string size = flanged.Groups["size"].Value.Replace(" ", "");
+                            row.Size = size;
+                            row.Observe("Size", size, Source.NozzleList);
+                        }
                         row.Standard = NormalizeStandard(flanged.Groups["std"].Value);
+                        row.Observe("Standard", row.Standard, Source.NozzleList);
                         if (flanged.Groups["pn"].Success) row.PressureClass = "PN" + flanged.Groups["pn"].Value;
                         if (flanged.Groups["asme"].Success) row.PressureClass = "Class " + flanged.Groups["asme"].Value;
+                        row.Observe("PressureClass", row.PressureClass, Source.NozzleList);
                         row.NozzleType = MapFlangeType(flanged.Groups["type"].Value);
+                        row.Observe("NozzleType", row.NozzleType, Source.NozzleList);
                         continue;
                     }
 
@@ -84,6 +106,7 @@ namespace NozzleScheduleExtractor
                         NozzleRow row = Get(loose.Groups["id"].Value);
                         SetDescription(row, loose.Groups["desc"].Value);
                         row.Size = loose.Groups["size"].Value.Replace(" ", "");
+                        row.Observe("Size", row.Size, Source.NozzleList);
                     }
                 }
             }
@@ -97,8 +120,7 @@ namespace NozzleScheduleExtractor
             }
 
             string compact = TextUtil.Normalize(text);
-            var flangeRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+Flange:(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.5).{0,120}?(?:(?:Class\s+)?(?<asme>\d+)\s+lbs|PN\s*(?<pn>\d+)).{0,120}?\b(?<type>WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
-            foreach (Match m in flangeRx.Matches(compact))
+            foreach (Match m in BomFlangeRx.Matches(compact))
             {
                 NozzleRow row = Get(m.Groups["id"].Value);
                 if (TextUtil.IsBlank(row.Standard) || IsFlangeStandard(row.Standard)) row.Standard = NormalizeStandard(m.Groups["std"].Value);
@@ -107,8 +129,7 @@ namespace NozzleScheduleExtractor
                 if (TextUtil.IsBlank(row.NozzleType)) row.NozzleType = MapFlangeType(m.Groups["type"].Value);
             }
 
-            var nozzleRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+Nozzle,[^-]+-\s*(?<desc>.*?)(?<size>DN\s*\d+|\d+"")?\s+do=(?<od>[\d.,]+),wt=(?<wt>[\d.,]+).*?ID\s+\d+,\s+(?<matstd>EN\s+\d{5}(?:-\d)?:\d{4}),\s+(?<mat>1\.\d{4})", RegexOptions.IgnoreCase);
-            foreach (Match m in nozzleRx.Matches(compact))
+            foreach (Match m in BomNozzleRx.Matches(compact))
             {
                 NozzleRow row = Get(m.Groups["id"].Value);
                 row.ComponentKind = TextUtil.IsBlank(row.ComponentKind) ? "Nozzle" : row.ComponentKind;
@@ -119,8 +140,7 @@ namespace NozzleScheduleExtractor
                 if (TextUtil.IsBlank(row.Standard)) row.Standard = NormalizeStandard(m.Groups["matstd"].Value);
             }
 
-            var ringRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+Reinforcement Ring-?\s*(?<desc>.*?)\s+do=(?<od>[\d.,]+),di=(?<idim>[\d.,]+).*?(?:wt|thk|s)=(?<wt>[\d.,]+).*?ID\s+\d+,\s+(?<matstd>EN\s+\d{5}(?:-\d)?:\d{4}),\s+(?<mat>1\.\d{4})", RegexOptions.IgnoreCase);
-            foreach (Match m in ringRx.Matches(compact))
+            foreach (Match m in BomRingRx.Matches(compact))
             {
                 NozzleRow row = Get(m.Groups["id"].Value);
                 row.ComponentKind = "Reinforcement Ring";
@@ -137,8 +157,7 @@ namespace NozzleScheduleExtractor
         private void ParseBomBlock(string block)
         {
             string compact = TextUtil.Normalize(block);
-            var componentRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+(?<chunk>.*?)(?=\s+[A-Z]{1,3}\.?\d+(?:\.\d+)?[A-Z*]*\s+1\s+|$)", RegexOptions.IgnoreCase);
-            foreach (Match m in componentRx.Matches(compact))
+            foreach (Match m in BomComponentRx.Matches(compact))
                 ParseBomComponent(m.Groups["id"].Value, m.Groups["chunk"].Value);
         }
 
@@ -181,68 +200,26 @@ namespace NozzleScheduleExtractor
             }
         }
 
-        private void ParseBomLine(string line)
-        {
-            Match head = Regex.Match(line, @"^(?<id>N\.\d+[A-Z*]*)\s+1\s+(?<desc>.*?)\s{1,}(?<rest>.+)$", RegexOptions.IgnoreCase);
-            if (!head.Success) return;
-
-            string id = head.Groups["id"].Value;
-            string description = head.Groups["desc"].Value;
-            string rest = head.Groups["rest"].Value;
-            string full = TextUtil.Normalize(description + " " + rest);
-            NozzleRow row = Get(id);
-
-            if (Regex.IsMatch(description, @"^Flange:", RegexOptions.IgnoreCase))
-            {
-                ApplyBomFlange(row, full);
-                return;
-            }
-
-            if (Regex.IsMatch(description, @"^Nozzle", RegexOptions.IgnoreCase))
-            {
-                row.ComponentKind = ExtractComponentKind(description);
-                SetDescription(row, ExtractServiceFromBomDescription(description));
-                ApplyBomNozzleGeometry(row, full);
-                ApplyMaterial(row, full, true);
-                return;
-            }
-
-            if (Regex.IsMatch(description, @"^Reinforcement Ring", RegexOptions.IgnoreCase))
-            {
-                row.ComponentKind = "Reinforcement Ring";
-                SetDescription(row, Regex.Replace(description, @"^Reinforcement Ring-?", "", RegexOptions.IgnoreCase));
-                ApplyBomRingGeometry(row, full);
-                ApplyMaterial(row, full, true);
-                return;
-            }
-
-            if (Regex.IsMatch(description, @"^Reinforcement Pad", RegexOptions.IgnoreCase))
-            {
-                if (TextUtil.IsBlank(row.ComponentKind))
-                    row.ComponentKind = "Reinforcement Pad";
-                if (TextUtil.IsBlank(row.PipeDimension))
-                    ApplyBomRingGeometry(row, full);
-                ApplyMaterial(row, full, false);
-            }
-        }
-
         private static void ApplyBomFlange(NozzleRow row, string text)
         {
             Match std = Regex.Match(text, @"Flange:(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.5)", RegexOptions.IgnoreCase);
-            if (std.Success) row.Standard = NormalizeStandard(std.Groups["std"].Value);
+            if (std.Success) { row.Standard = NormalizeStandard(std.Groups["std"].Value); row.Observe("Standard", row.Standard, Source.Bom); }
             Match pn = Regex.Match(text, @"\bPN\s*(?<pn>\d+)\b", RegexOptions.IgnoreCase);
             Match asme = Regex.Match(text, @"\bClass\s*(?<asme>\d+)\s*lbs\b", RegexOptions.IgnoreCase);
-            if (pn.Success) row.PressureClass = "PN" + pn.Groups["pn"].Value;
-            if (asme.Success) row.PressureClass = "Class " + asme.Groups["asme"].Value;
+            if (pn.Success) { row.PressureClass = "PN" + pn.Groups["pn"].Value; row.Observe("PressureClass", row.PressureClass, Source.Bom); }
+            if (asme.Success) { row.PressureClass = "Class " + asme.Groups["asme"].Value; row.Observe("PressureClass", row.PressureClass, Source.Bom); }
             Match type = Regex.Match(text, @"\b(?<type>WN|LJ|RT|PL)\s+-\s+Type|\b(?<type2>WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
             if (type.Success)
+            {
                 row.NozzleType = MapFlangeType(type.Groups["type"].Success ? type.Groups["type"].Value : type.Groups["type2"].Value);
+                row.Observe("NozzleType", row.NozzleType, Source.Bom);
+            }
         }
 
         private static void ApplyBomNozzleGeometry(NozzleRow row, string text)
         {
             Match size = Regex.Match(text, @"\b(?<size>DN\s*\d+|\d+"")\b", RegexOptions.IgnoreCase);
-            if (size.Success) row.Size = size.Groups["size"].Value.Replace(" ", "");
+            if (size.Success) { row.Size = size.Groups["size"].Value.Replace(" ", ""); row.Observe("Size", row.Size, Source.Bom); }
             Match od = Regex.Match(text, @"\bdo=(?<od>[\d.,]+)", RegexOptions.IgnoreCase);
             Match wt = Regex.Match(text, @"\bwt=(?<wt>[\d.,]+)", RegexOptions.IgnoreCase);
             if (od.Success && wt.Success)
@@ -266,6 +243,7 @@ namespace NozzleScheduleExtractor
             if (!mat.Success)
                 mat = Regex.Match(text, @"\b(?<std>EN\s+\d{5}(?:-\d)?),\s*(?<mat>1\.\d{4})", RegexOptions.IgnoreCase);
             if (!mat.Success) return;
+            if (overwrite) row.Observe("Material", mat.Groups["mat"].Value, Source.Bom);
             if (overwrite || TextUtil.IsBlank(row.Material)) row.Material = mat.Groups["mat"].Value;
             if ((overwrite || TextUtil.IsBlank(row.Standard)) && !IsFlangeStandard(row.Standard))
                 row.Standard = NormalizeStandard(mat.Groups["std"].Value);
@@ -294,6 +272,11 @@ namespace NozzleScheduleExtractor
                 Match m = Regex.Match(line, @"^(?<id>N\.\d+[A-Z*]*)\s+Standard Flange\s+(?<size>DN\s*\d+|\d+"")\s+(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.\d)\s+(?:(?:Class\s+)?(?<asme>\d+)\s+lbs|PN\s*(?<pn>\d+))\s+(?<type>WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
                 if (!m.Success) continue;
                 NozzleRow row = Get(m.Groups["id"].Value);
+                row.Observe("Size", m.Groups["size"].Value.Replace(" ", ""), Source.Mawp);
+                row.Observe("Standard", NormalizeStandard(m.Groups["std"].Value), Source.Mawp);
+                if (m.Groups["pn"].Success) row.Observe("PressureClass", "PN" + m.Groups["pn"].Value, Source.Mawp);
+                if (m.Groups["asme"].Success) row.Observe("PressureClass", "Class " + m.Groups["asme"].Value, Source.Mawp);
+                row.Observe("NozzleType", MapFlangeType(m.Groups["type"].Value), Source.Mawp);
                 if (TextUtil.IsBlank(row.Size)) row.Size = m.Groups["size"].Value.Replace(" ", "");
                 if (TextUtil.IsBlank(row.Standard)) row.Standard = NormalizeStandard(m.Groups["std"].Value);
                 if (TextUtil.IsBlank(row.PressureClass) && m.Groups["pn"].Success) row.PressureClass = "PN" + m.Groups["pn"].Value;
@@ -305,8 +288,7 @@ namespace NozzleScheduleExtractor
         private void ParseNozzleLoads(string text)
         {
             string compact = TextUtil.Normalize(text);
-            var summaryRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s*.*?Load Case\s+\d+.*?Fz\s*=\s*(?<Fz>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*My\s*=\s*(?<My>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kNm,\s*Mx\s*=\s*(?<Mx>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kNm,\s*Fl\s*=\s*(?<Fx>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*Fc\s*=\s*(?<Fy>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*Mt\s*=\s*(?<Mz>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))", RegexOptions.IgnoreCase);
-            foreach (Match m in summaryRx.Matches(compact))
+            foreach (Match m in LoadsSummaryRx.Matches(compact))
                 ApplyLoads(Get(m.Groups["id"].Value), m);
 
             string[] pages = Regex.Split(text, @"<<<PAGE\s+\d+>>>");
@@ -345,10 +327,73 @@ namespace NozzleScheduleExtractor
             }
         }
 
+        // Maps a VVD load-table row label to a schedule load key. The label cell carries
+        // the local symbol (Fz/My/Mx/Fl/Fc/Mt); VVD notation is remapped to Fx/Fy/Mz.
+        // Each entry is { local symbol, schedule key }.
+        private static readonly string[][] LoadSymbols =
+        {
+            new[] { "Fz", "Fz" }, new[] { "My", "My" }, new[] { "Mx", "Mx" },
+            new[] { "Fl", "Fx" }, new[] { "Fc", "Fy" }, new[] { "Mt", "Mz" }
+        };
+
+        private static readonly Regex TableBlockRx = new Regex(@"<<<TABLE>>>(?<body>.*?)<<<TABLE END>>>", RegexOptions.Singleline);
+
+        // Consumes the deterministic table blocks emitted by the pdfplumber extractor.
+        // Cells are separated by '|', so column boundaries are exact and do not depend on
+        // the fragile whitespace layout the text-based ApplyLoadTable relies on. Runs after
+        // the text passes and overwrites their load values, since structured cells are the
+        // most reliable source.
+        private void ParseStructuredLoadTables(string text)
+        {
+            if (text.IndexOf("<<<TABLE>>>", StringComparison.Ordinal) < 0)
+                return;
+
+            string[] pages = Regex.Split(text, @"<<<PAGE\s+\d+>>>");
+            foreach (string page in pages)
+            {
+                if (page.IndexOf("<<<TABLE>>>", StringComparison.Ordinal) < 0)
+                    continue;
+                string id = FindNozzleIdNearLoadTable(page);
+                if (TextUtil.IsBlank(id)) continue;
+
+                NozzleRow row = Get(id);
+                foreach (Match block in TableBlockRx.Matches(page))
+                    ApplyStructuredLoadTable(row, block.Groups["body"].Value);
+            }
+        }
+
+        private static void ApplyStructuredLoadTable(NozzleRow row, string body)
+        {
+            foreach (string raw in TextUtil.Lines(body))
+            {
+                int sep = raw.IndexOf('|');
+                if (sep < 0) continue;
+
+                string key = MapLoadSymbol(raw.Substring(0, sep));
+                if (key == null) continue;
+
+                string value = PickMaxAbsValue(raw.Substring(sep + 1).Replace('|', ' '));
+                if (!TextUtil.IsBlank(value))
+                    row.Loads[key] = value;
+            }
+        }
+
+        private static string MapLoadSymbol(string label)
+        {
+            foreach (string[] entry in LoadSymbols)
+                if (Regex.IsMatch(label, @"\b" + entry[0] + @"\b", RegexOptions.IgnoreCase))
+                    return entry[1];
+            return null;
+        }
+
         private void ApplySection(NozzleRow row, string section)
         {
             Match size = Regex.Match(section, @"Size of Flange and Nozzle:\s*(DN\s*\d+|\d+"")", RegexOptions.IgnoreCase);
-            if (size.Success && TextUtil.IsBlank(row.Size)) row.Size = size.Groups[1].Value.Replace(" ", "");
+            if (size.Success)
+            {
+                row.Observe("Size", size.Groups[1].Value.Replace(" ", ""), Source.Detail);
+                if (TextUtil.IsBlank(row.Size)) row.Size = size.Groups[1].Value.Replace(" ", "");
+            }
 
             Match deb = Regex.Match(section, @"OUTSIDE NOZZLE DIAMETER.*?:deb\s+([\d.,]+)\s+mm", RegexOptions.IgnoreCase);
             Match enb = Regex.Match(section, @"NOMINAL NOZZLE THICKNESS.*?:enb\s+([\d.,]+)\s+mm", RegexOptions.IgnoreCase);
@@ -363,13 +408,25 @@ namespace NozzleScheduleExtractor
             }
 
             Match pressure = Regex.Match(section, @"Pressure Class:\s*(?:EN1092|EN\s*1092|DIN\s+\d+)\s+:Class\s+PN\s*(\d+)", RegexOptions.IgnoreCase);
-            if (pressure.Success && TextUtil.IsBlank(row.PressureClass)) row.PressureClass = "PN" + pressure.Groups[1].Value;
+            if (pressure.Success)
+            {
+                row.Observe("PressureClass", "PN" + pressure.Groups[1].Value, Source.Detail);
+                if (TextUtil.IsBlank(row.PressureClass)) row.PressureClass = "PN" + pressure.Groups[1].Value;
+            }
 
             Match asme = Regex.Match(section, @"Pressure Class:\s*ASME\s+B16\.\d+:Class\s+(\d+)\s+lbs", RegexOptions.IgnoreCase);
-            if (asme.Success && TextUtil.IsBlank(row.PressureClass)) row.PressureClass = "Class " + asme.Groups[1].Value;
+            if (asme.Success)
+            {
+                row.Observe("PressureClass", "Class " + asme.Groups[1].Value, Source.Detail);
+                if (TextUtil.IsBlank(row.PressureClass)) row.PressureClass = "Class " + asme.Groups[1].Value;
+            }
 
             Match flange = Regex.Match(section, @"Flange Type:\s*(WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
-            if (flange.Success && TextUtil.IsBlank(row.NozzleType)) row.NozzleType = MapFlangeType(flange.Groups[1].Value);
+            if (flange.Success)
+            {
+                row.Observe("NozzleType", MapFlangeType(flange.Groups[1].Value), Source.Detail);
+                if (TextUtil.IsBlank(row.NozzleType)) row.NozzleType = MapFlangeType(flange.Groups[1].Value);
+            }
 
             ApplyLoadTable(row, section);
         }
@@ -391,8 +448,13 @@ namespace NozzleScheduleExtractor
             Match heading = Regex.Match(section, @"(?:^|\n)\s*\d+\s+(?<id>N\.\d+[A-Z*]*)\s+(?:Nozzle|Reinforcement)", RegexOptions.IgnoreCase);
             if (heading.Success) return heading.Groups["id"].Value;
 
-            Match any = Regex.Match(section, @"\b(?<id>N\.\d+[A-Z*]*)\b", RegexOptions.IgnoreCase);
-            return any.Success ? any.Groups["id"].Value : "";
+            // Last resort: only trust a bare id if the section mentions exactly one distinct
+            // nozzle. Picking the first of several ids risks attaching a load table to the
+            // wrong nozzle silently, so we skip instead.
+            var distinct = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match m in BareIdRx.Matches(section))
+                distinct.Add(TextUtil.NormId(m.Groups["id"].Value));
+            return distinct.Count == 1 ? distinct.First() : "";
         }
 
         private static void ApplyLoadTable(NozzleRow row, string section)

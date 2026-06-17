@@ -17,6 +17,10 @@ namespace NozzleScheduleExtractor
                 BomOverridesNozzleListAndCopyNotes(fixtureRoot);
                 PadDoesNotOverwriteNozzleMaterial(fixtureRoot);
                 DetailPageFillsFallbacksAndTableLoads(fixtureRoot);
+                StructuredTableOverridesGarbledText(fixtureRoot);
+                ValidatorFlagsConflictsAndBadGeometry(fixtureRoot);
+                HybridResolverStaysInertUntilEnabled();
+                FallbackExtractorPrefersFirstUsableResult();
                 Console.WriteLine("PASS: " + _assertions + " assertions");
                 return 0;
             }
@@ -81,6 +85,115 @@ namespace NozzleScheduleExtractor
             Equal("N.3 Fx max abs", "-3,2", n3.Loads["Fx"]);
             Equal("N.3 Fy max abs", "4,1", n3.Loads["Fy"]);
             Equal("N.3 Mz max abs", "-1,2", n3.Loads["Mz"]);
+        }
+
+        private static void StructuredTableOverridesGarbledText(string fixtureRoot)
+        {
+            // The flat-text load table carries stray leaked numbers (888, 77, ...) the way a
+            // shifted column looks once layout is lost. The structured <<<TABLE>>> block has
+            // clean cells, so the parser must prefer it and ignore the garbled text values.
+            List<NozzleRow> rows = ParseFixture(fixtureRoot, "structured_load_table.txt");
+            NozzleRow n7 = Row(rows, "N.7");
+
+            Equal("N.7 structured Fz", "-15", n7.Loads["Fz"]);
+            Equal("N.7 structured My", "-0,9", n7.Loads["My"]);
+            Equal("N.7 structured Mx", "-3,1", n7.Loads["Mx"]);
+            Equal("N.7 structured Fx", "-4,5", n7.Loads["Fx"]);
+            Equal("N.7 structured Fy", "5,2", n7.Loads["Fy"]);
+            Equal("N.7 structured Mz", "-1,6", n7.Loads["Mz"]);
+        }
+
+        private static void ValidatorFlagsConflictsAndBadGeometry(string fixtureRoot)
+        {
+            // Nozzle List and the MAWP flange table disagree on size/class for N.5, and the
+            // detail page yields wall thickness >= radius. The validator must flag all three
+            // and drop the row to Low confidence, without changing the chosen values.
+            List<NozzleRow> rows = ParseFixture(fixtureRoot, "validation_conflict.txt");
+            NozzleRow n5 = Row(rows, "N.5");
+
+            Equal("N.5 keeps Nozzle List size", "DN50", n5.Size);
+            Equal("N.5 keeps Nozzle List class", "PN16", n5.PressureClass);
+            Equal("N.5 confidence", "Low", n5.Confidence.ToString());
+
+            True("N.5 size conflict flagged", HasDiagnostic(n5, "Size", "conflict"));
+            True("N.5 class conflict flagged", HasDiagnostic(n5, "PressureClass", "conflict"));
+            True("N.5 geometry flagged", HasDiagnostic(n5, "PipeDimension", "thickness"));
+        }
+
+        private static bool HasDiagnostic(NozzleRow row, string field, string messagePart)
+        {
+            foreach (Diagnostic d in row.Diagnostics)
+                if (d.Field == field && d.Message.IndexOf(messagePart, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            return false;
+        }
+
+        private static void True(string name, bool condition)
+        {
+            _assertions++;
+            if (!condition)
+                throw new Exception(name + ": expected true");
+        }
+
+        private static void HybridResolverStaysInertUntilEnabled()
+        {
+            // The optional LLM resolver must never call out (or throw) unless it is both
+            // enabled and given a key. Both guard paths must return no suggestions.
+            var disabled = new ClaudeNozzleFieldResolver(new HybridResolverOptions());
+            True("disabled resolver yields nothing", disabled.Resolve("any text", new[] { "Size" }).Count == 0);
+
+            var noKey = new HybridResolverOptions();
+            noKey.Enabled = true;
+            noKey.ApiKey = "";
+            True("enabled without key yields nothing", new ClaudeNozzleFieldResolver(noKey).Resolve("any text", new[] { "Size" }).Count == 0);
+        }
+
+        private static void FallbackExtractorPrefersFirstUsableResult()
+        {
+            // Primary throws (e.g. pdfplumber not installed) -> falls back to secondary.
+            Equal("fallback on throw", "secondary",
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => { throw new Exception("boom"); }),
+                    new StubExtractor(() => "secondary")).ExtractText("x"));
+
+            // Primary returns blank -> falls back to secondary.
+            Equal("fallback on blank", "secondary",
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => "   "),
+                    new StubExtractor(() => "secondary")).ExtractText("x"));
+
+            // Primary returns usable text -> secondary is never consulted.
+            Equal("prefers primary", "primary",
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => "primary"),
+                    new StubExtractor(() => { throw new Exception("must not run"); })).ExtractText("x"));
+
+            // All extractors throw -> errors are aggregated (none swallowed).
+            string message = "";
+            try
+            {
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => { throw new Exception("first"); }),
+                    new StubExtractor(() => { throw new Exception("last"); })).ExtractText("x");
+            }
+            catch (AggregateException ex)
+            {
+                message = string.Join(",", ex.InnerExceptions.Select(e => e.Message).ToArray());
+            }
+            Equal("aggregates all errors", "first,last", message);
+
+            // Marker-only output is treated as empty, so the fallback still runs.
+            Equal("marker-only falls back", "real",
+                new FallbackReportTextExtractor(
+                    new StubExtractor(() => "<<<PAGE 1>>>\n\n"),
+                    new StubExtractor(() => "real")).ExtractText("x"));
+        }
+
+        private sealed class StubExtractor : IReportTextExtractor
+        {
+            private readonly Func<string> _result;
+            public StubExtractor(Func<string> result) { _result = result; }
+            public string ExtractText(string reportPath) { return _result(); }
         }
 
         private static List<NozzleRow> ParseFixture(string fixtureRoot, string fileName)

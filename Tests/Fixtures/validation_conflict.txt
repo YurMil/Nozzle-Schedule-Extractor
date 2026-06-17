@@ -1,0 +1,14 @@
+Nozzle List
+N.5 Process Inlet DN50 EN1092 PN16 WN
+Nozzle Loads
+
+N.5 Standard Flange DN80 EN1092 PN40 WN
+
+<<<PAGE 2>>>
+DATA FOR NOZZLE: N.5
+Size of Flange and Nozzle: DN 50
+OUTSIDE NOZZLE DIAMETER text :deb 60,3 mm
+NOMINAL NOZZLE THICKNESS text :enb 40 mm
+EN 10216-5:2021, 1.4404
+Pressure Class: EN1092 :Class PN 16
+Flange Type: WN

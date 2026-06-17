@@ -1,0 +1,4 @@
+# Python packages used by the PDF text extractors.
+# pdfplumber is the primary (layout-aware) extractor; pypdf is the fallback.
+pdfplumber>=0.11
+pypdf>=4.0

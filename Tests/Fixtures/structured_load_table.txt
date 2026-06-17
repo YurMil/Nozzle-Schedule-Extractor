@@ -1,0 +1,19 @@
+<<<PAGE 1>>>
+
+DATA FOR NOZZLE: N.7
+Size of Flange and Nozzle: DN 100
+Table NOZZLE LOADS
+Radial Load Fz kN 2 -15 4 888
+Longitudinal Moment My kNm 0,2 -0,9 0,5 77
+Circumferential Moment: Mx kNm 1,5 -3,1 0,4 66
+Longitudinal Shear Force Fl kN 0,7 -4,5 2,3 55
+Circumferential Shear Force Fc kN -1,8 5,2 2,6 44
+Torsional Moment Mt kNm 0,8 -1,6 0,5 33
+<<<TABLE>>>
+Radial Load Fz kN|2|-15|4
+Longitudinal Moment My kNm|0,2|-0,9|0,5
+Circumferential Moment Mx kNm|1,5|-3,1|0,4
+Longitudinal Shear Force Fl kN|0,7|-4,5|2,3
+Circumferential Shear Force Fc kN|-1,8|5,2|2,6
+Torsional Moment Mt kNm|0,8|-1,6|0,5
+<<<TABLE END>>>
