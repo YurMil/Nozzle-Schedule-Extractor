@@ -19,6 +19,7 @@ namespace NozzleScheduleExtractor
                 DetailPageFillsFallbacksAndTableLoads(fixtureRoot);
                 StructuredTableOverridesGarbledText(fixtureRoot);
                 ValidatorFlagsConflictsAndBadGeometry(fixtureRoot);
+                HybridResolverStaysInertUntilEnabled();
                 FallbackExtractorPrefersFirstUsableResult();
                 Console.WriteLine("PASS: " + _assertions + " assertions");
                 return 0;
@@ -132,6 +133,19 @@ namespace NozzleScheduleExtractor
             _assertions++;
             if (!condition)
                 throw new Exception(name + ": expected true");
+        }
+
+        private static void HybridResolverStaysInertUntilEnabled()
+        {
+            // The optional LLM resolver must never call out (or throw) unless it is both
+            // enabled and given a key. Both guard paths must return no suggestions.
+            var disabled = new ClaudeNozzleFieldResolver(new HybridResolverOptions());
+            True("disabled resolver yields nothing", disabled.Resolve("any text", new[] { "Size" }).Count == 0);
+
+            var noKey = new HybridResolverOptions();
+            noKey.Enabled = true;
+            noKey.ApiKey = "";
+            True("enabled without key yields nothing", new ClaudeNozzleFieldResolver(noKey).Resolve("any text", new[] { "Size" }).Count == 0);
         }
 
         private static void FallbackExtractorPrefersFirstUsableResult()
