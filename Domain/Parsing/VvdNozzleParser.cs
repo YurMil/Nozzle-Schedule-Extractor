@@ -16,7 +16,8 @@ namespace NozzleScheduleExtractor
         private static readonly Regex BomNozzleRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+Nozzle,[^-]+-\s*(?<desc>.*?)(?<size>DN\s*\d+|\d+"")?\s+do=(?<od>[\d.,]+),wt=(?<wt>[\d.,]+).*?ID\s+\d+,\s+(?<matstd>EN\s+\d{5}(?:-\d)?:\d{4}),\s+(?<mat>1\.\d{4})", Opts);
         private static readonly Regex BomRingRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+Reinforcement Ring-?\s*(?<desc>.*?)\s+do=(?<od>[\d.,]+),di=(?<idim>[\d.,]+).*?(?:wt|thk|s)=(?<wt>[\d.,]+).*?ID\s+\d+,\s+(?<matstd>EN\s+\d{5}(?:-\d)?:\d{4}),\s+(?<mat>1\.\d{4})", Opts);
         private static readonly Regex BomComponentRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s+1\s+(?<chunk>.*?)(?=\s+[A-Z]{1,3}\.?\d+(?:\.\d+)?[A-Z*]*\s+1\s+|$)", Opts);
-        private static readonly Regex LoadsSummaryRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s*.*?Load Case\s+\d+.*?Fz\s*=\s*(?<Fz>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*My\s*=\s*(?<My>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kNm,\s*Mx\s*=\s*(?<Mx>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kNm,\s*Fl\s*=\s*(?<Fx>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*Fc\s*=\s*(?<Fy>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*Mt\s*=\s*(?<Mz>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))", Opts);
+        private static readonly Regex LoadsSummaryRx = new Regex(@"(?<id>N\.\d+[A-Z*]*)\s*.{0,150}?Load Case\s+\d+.{0,150}?Fz\s*=\s*(?<Fz>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*My\s*=\s*(?<My>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kNm,\s*Mx\s*=\s*(?<Mx>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kNm,\s*Fl\s*=\s*(?<Fx>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*Fc\s*=\s*(?<Fy>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))\s*kN,\s*Mt\s*=\s*(?<Mz>-?(?:\d+(?:[\.,]\d*)?|[\.,]\d+))", Opts);
+        private static readonly Regex BareIdRx = new Regex(@"\b(?<id>N\.\d+[A-Z*]*)\b", Opts);
 
         public List<NozzleRow> Parse(string text)
         {
@@ -451,7 +452,7 @@ namespace NozzleScheduleExtractor
             // nozzle. Picking the first of several ids risks attaching a load table to the
             // wrong nozzle silently, so we skip instead.
             var distinct = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (Match m in Regex.Matches(section, @"\b(?<id>N\.\d+[A-Z*]*)\b", RegexOptions.IgnoreCase))
+            foreach (Match m in BareIdRx.Matches(section))
                 distinct.Add(TextUtil.NormId(m.Groups["id"].Value));
             return distinct.Count == 1 ? distinct.First() : "";
         }
