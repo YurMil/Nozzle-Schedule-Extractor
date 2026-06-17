@@ -31,6 +31,9 @@ namespace NozzleScheduleExtractor
             ApplyCopyNotes(text);
             InferMissingValues();
 
+            foreach (NozzleRow row in _rows.Values)
+                RowValidator.Validate(row);
+
             return _rows.Values
                 .OrderBy(r => TextUtil.DisplayNumberSortKey(r.Key))
                 .ToList();
@@ -80,11 +83,19 @@ namespace NozzleScheduleExtractor
                     {
                         NozzleRow row = Get(flanged.Groups["id"].Value);
                         SetDescription(row, flanged.Groups["desc"].Value);
-                        if (flanged.Groups["size"].Success) row.Size = flanged.Groups["size"].Value.Replace(" ", "");
+                        if (flanged.Groups["size"].Success)
+                        {
+                            string size = flanged.Groups["size"].Value.Replace(" ", "");
+                            row.Size = size;
+                            row.Observe("Size", size, Source.NozzleList);
+                        }
                         row.Standard = NormalizeStandard(flanged.Groups["std"].Value);
+                        row.Observe("Standard", row.Standard, Source.NozzleList);
                         if (flanged.Groups["pn"].Success) row.PressureClass = "PN" + flanged.Groups["pn"].Value;
                         if (flanged.Groups["asme"].Success) row.PressureClass = "Class " + flanged.Groups["asme"].Value;
+                        row.Observe("PressureClass", row.PressureClass, Source.NozzleList);
                         row.NozzleType = MapFlangeType(flanged.Groups["type"].Value);
+                        row.Observe("NozzleType", row.NozzleType, Source.NozzleList);
                         continue;
                     }
 
@@ -94,6 +105,7 @@ namespace NozzleScheduleExtractor
                         NozzleRow row = Get(loose.Groups["id"].Value);
                         SetDescription(row, loose.Groups["desc"].Value);
                         row.Size = loose.Groups["size"].Value.Replace(" ", "");
+                        row.Observe("Size", row.Size, Source.NozzleList);
                     }
                 }
             }
@@ -190,20 +202,23 @@ namespace NozzleScheduleExtractor
         private static void ApplyBomFlange(NozzleRow row, string text)
         {
             Match std = Regex.Match(text, @"Flange:(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.5)", RegexOptions.IgnoreCase);
-            if (std.Success) row.Standard = NormalizeStandard(std.Groups["std"].Value);
+            if (std.Success) { row.Standard = NormalizeStandard(std.Groups["std"].Value); row.Observe("Standard", row.Standard, Source.Bom); }
             Match pn = Regex.Match(text, @"\bPN\s*(?<pn>\d+)\b", RegexOptions.IgnoreCase);
             Match asme = Regex.Match(text, @"\bClass\s*(?<asme>\d+)\s*lbs\b", RegexOptions.IgnoreCase);
-            if (pn.Success) row.PressureClass = "PN" + pn.Groups["pn"].Value;
-            if (asme.Success) row.PressureClass = "Class " + asme.Groups["asme"].Value;
+            if (pn.Success) { row.PressureClass = "PN" + pn.Groups["pn"].Value; row.Observe("PressureClass", row.PressureClass, Source.Bom); }
+            if (asme.Success) { row.PressureClass = "Class " + asme.Groups["asme"].Value; row.Observe("PressureClass", row.PressureClass, Source.Bom); }
             Match type = Regex.Match(text, @"\b(?<type>WN|LJ|RT|PL)\s+-\s+Type|\b(?<type2>WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
             if (type.Success)
+            {
                 row.NozzleType = MapFlangeType(type.Groups["type"].Success ? type.Groups["type"].Value : type.Groups["type2"].Value);
+                row.Observe("NozzleType", row.NozzleType, Source.Bom);
+            }
         }
 
         private static void ApplyBomNozzleGeometry(NozzleRow row, string text)
         {
             Match size = Regex.Match(text, @"\b(?<size>DN\s*\d+|\d+"")\b", RegexOptions.IgnoreCase);
-            if (size.Success) row.Size = size.Groups["size"].Value.Replace(" ", "");
+            if (size.Success) { row.Size = size.Groups["size"].Value.Replace(" ", ""); row.Observe("Size", row.Size, Source.Bom); }
             Match od = Regex.Match(text, @"\bdo=(?<od>[\d.,]+)", RegexOptions.IgnoreCase);
             Match wt = Regex.Match(text, @"\bwt=(?<wt>[\d.,]+)", RegexOptions.IgnoreCase);
             if (od.Success && wt.Success)
@@ -227,6 +242,7 @@ namespace NozzleScheduleExtractor
             if (!mat.Success)
                 mat = Regex.Match(text, @"\b(?<std>EN\s+\d{5}(?:-\d)?),\s*(?<mat>1\.\d{4})", RegexOptions.IgnoreCase);
             if (!mat.Success) return;
+            if (overwrite) row.Observe("Material", mat.Groups["mat"].Value, Source.Bom);
             if (overwrite || TextUtil.IsBlank(row.Material)) row.Material = mat.Groups["mat"].Value;
             if ((overwrite || TextUtil.IsBlank(row.Standard)) && !IsFlangeStandard(row.Standard))
                 row.Standard = NormalizeStandard(mat.Groups["std"].Value);
@@ -255,6 +271,11 @@ namespace NozzleScheduleExtractor
                 Match m = Regex.Match(line, @"^(?<id>N\.\d+[A-Z*]*)\s+Standard Flange\s+(?<size>DN\s*\d+|\d+"")\s+(?<std>EN\s*1092|DIN\s+\d+|ASME\s+B16\.\d)\s+(?:(?:Class\s+)?(?<asme>\d+)\s+lbs|PN\s*(?<pn>\d+))\s+(?<type>WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
                 if (!m.Success) continue;
                 NozzleRow row = Get(m.Groups["id"].Value);
+                row.Observe("Size", m.Groups["size"].Value.Replace(" ", ""), Source.Mawp);
+                row.Observe("Standard", NormalizeStandard(m.Groups["std"].Value), Source.Mawp);
+                if (m.Groups["pn"].Success) row.Observe("PressureClass", "PN" + m.Groups["pn"].Value, Source.Mawp);
+                if (m.Groups["asme"].Success) row.Observe("PressureClass", "Class " + m.Groups["asme"].Value, Source.Mawp);
+                row.Observe("NozzleType", MapFlangeType(m.Groups["type"].Value), Source.Mawp);
                 if (TextUtil.IsBlank(row.Size)) row.Size = m.Groups["size"].Value.Replace(" ", "");
                 if (TextUtil.IsBlank(row.Standard)) row.Standard = NormalizeStandard(m.Groups["std"].Value);
                 if (TextUtil.IsBlank(row.PressureClass) && m.Groups["pn"].Success) row.PressureClass = "PN" + m.Groups["pn"].Value;
@@ -367,7 +388,11 @@ namespace NozzleScheduleExtractor
         private void ApplySection(NozzleRow row, string section)
         {
             Match size = Regex.Match(section, @"Size of Flange and Nozzle:\s*(DN\s*\d+|\d+"")", RegexOptions.IgnoreCase);
-            if (size.Success && TextUtil.IsBlank(row.Size)) row.Size = size.Groups[1].Value.Replace(" ", "");
+            if (size.Success)
+            {
+                row.Observe("Size", size.Groups[1].Value.Replace(" ", ""), Source.Detail);
+                if (TextUtil.IsBlank(row.Size)) row.Size = size.Groups[1].Value.Replace(" ", "");
+            }
 
             Match deb = Regex.Match(section, @"OUTSIDE NOZZLE DIAMETER.*?:deb\s+([\d.,]+)\s+mm", RegexOptions.IgnoreCase);
             Match enb = Regex.Match(section, @"NOMINAL NOZZLE THICKNESS.*?:enb\s+([\d.,]+)\s+mm", RegexOptions.IgnoreCase);
@@ -382,13 +407,25 @@ namespace NozzleScheduleExtractor
             }
 
             Match pressure = Regex.Match(section, @"Pressure Class:\s*(?:EN1092|EN\s*1092|DIN\s+\d+)\s+:Class\s+PN\s*(\d+)", RegexOptions.IgnoreCase);
-            if (pressure.Success && TextUtil.IsBlank(row.PressureClass)) row.PressureClass = "PN" + pressure.Groups[1].Value;
+            if (pressure.Success)
+            {
+                row.Observe("PressureClass", "PN" + pressure.Groups[1].Value, Source.Detail);
+                if (TextUtil.IsBlank(row.PressureClass)) row.PressureClass = "PN" + pressure.Groups[1].Value;
+            }
 
             Match asme = Regex.Match(section, @"Pressure Class:\s*ASME\s+B16\.\d+:Class\s+(\d+)\s+lbs", RegexOptions.IgnoreCase);
-            if (asme.Success && TextUtil.IsBlank(row.PressureClass)) row.PressureClass = "Class " + asme.Groups[1].Value;
+            if (asme.Success)
+            {
+                row.Observe("PressureClass", "Class " + asme.Groups[1].Value, Source.Detail);
+                if (TextUtil.IsBlank(row.PressureClass)) row.PressureClass = "Class " + asme.Groups[1].Value;
+            }
 
             Match flange = Regex.Match(section, @"Flange Type:\s*(WN|LJ|RT|PL)\b", RegexOptions.IgnoreCase);
-            if (flange.Success && TextUtil.IsBlank(row.NozzleType)) row.NozzleType = MapFlangeType(flange.Groups[1].Value);
+            if (flange.Success)
+            {
+                row.Observe("NozzleType", MapFlangeType(flange.Groups[1].Value), Source.Detail);
+                if (TextUtil.IsBlank(row.NozzleType)) row.NozzleType = MapFlangeType(flange.Groups[1].Value);
+            }
 
             ApplyLoadTable(row, section);
         }

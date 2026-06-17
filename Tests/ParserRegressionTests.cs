@@ -18,6 +18,7 @@ namespace NozzleScheduleExtractor
                 PadDoesNotOverwriteNozzleMaterial(fixtureRoot);
                 DetailPageFillsFallbacksAndTableLoads(fixtureRoot);
                 StructuredTableOverridesGarbledText(fixtureRoot);
+                ValidatorFlagsConflictsAndBadGeometry(fixtureRoot);
                 FallbackExtractorPrefersFirstUsableResult();
                 Console.WriteLine("PASS: " + _assertions + " assertions");
                 return 0;
@@ -99,6 +100,38 @@ namespace NozzleScheduleExtractor
             Equal("N.7 structured Fx", "-4,5", n7.Loads["Fx"]);
             Equal("N.7 structured Fy", "5,2", n7.Loads["Fy"]);
             Equal("N.7 structured Mz", "-1,6", n7.Loads["Mz"]);
+        }
+
+        private static void ValidatorFlagsConflictsAndBadGeometry(string fixtureRoot)
+        {
+            // Nozzle List and the MAWP flange table disagree on size/class for N.5, and the
+            // detail page yields wall thickness >= radius. The validator must flag all three
+            // and drop the row to Low confidence, without changing the chosen values.
+            List<NozzleRow> rows = ParseFixture(fixtureRoot, "validation_conflict.txt");
+            NozzleRow n5 = Row(rows, "N.5");
+
+            Equal("N.5 keeps Nozzle List size", "DN50", n5.Size);
+            Equal("N.5 keeps Nozzle List class", "PN16", n5.PressureClass);
+            Equal("N.5 confidence", "Low", n5.Confidence.ToString());
+
+            True("N.5 size conflict flagged", HasDiagnostic(n5, "Size", "conflict"));
+            True("N.5 class conflict flagged", HasDiagnostic(n5, "PressureClass", "conflict"));
+            True("N.5 geometry flagged", HasDiagnostic(n5, "PipeDimension", "thickness"));
+        }
+
+        private static bool HasDiagnostic(NozzleRow row, string field, string messagePart)
+        {
+            foreach (Diagnostic d in row.Diagnostics)
+                if (d.Field == field && d.Message.IndexOf(messagePart, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            return false;
+        }
+
+        private static void True(string name, bool condition)
+        {
+            _assertions++;
+            if (!condition)
+                throw new Exception(name + ": expected true");
         }
 
         private static void FallbackExtractorPrefersFirstUsableResult()

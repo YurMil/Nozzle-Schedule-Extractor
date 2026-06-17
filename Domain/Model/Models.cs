@@ -16,8 +16,27 @@ namespace NozzleScheduleExtractor
         public string Standard = "";
         public readonly Dictionary<string, string> Loads = new Dictionary<string, string>();
 
+        // Validation findings and per-field provenance, populated after parsing.
+        public Confidence Confidence = Confidence.High;
+        public readonly List<Diagnostic> Diagnostics = new List<Diagnostic>();
+        public readonly Dictionary<string, List<Observation>> Observations = new Dictionary<string, List<Observation>>();
+
         public string DisplayId { get { return Key.Replace(".", "").Replace("*", ""); } }
         public bool IsReinforcement { get { return ComponentKind.ToLowerInvariant().Contains("reinforcement"); } }
+
+        /// <summary>Records that <paramref name="source"/> produced <paramref name="value"/>
+        /// for <paramref name="field"/>. Blank values are ignored. Used for conflict detection.</summary>
+        public void Observe(string field, string value, string source)
+        {
+            if (TextUtil.IsBlank(value)) return;
+            List<Observation> list;
+            if (!Observations.TryGetValue(field, out list))
+            {
+                list = new List<Observation>();
+                Observations[field] = list;
+            }
+            list.Add(new Observation(source, value.Trim()));
+        }
 
         public void MergeFrom(NozzleRow source)
         {
@@ -50,5 +69,28 @@ namespace NozzleScheduleExtractor
             "My (kNm)",
             "Mz (kNm)"
         };
+
+        // Field keys aligned 1:1 with Headers. Diagnostics and observations use these keys;
+        // index in this array is the column index (used for XLSX cell highlighting).
+        public static readonly string[] FieldKeys =
+        {
+            "",
+            "Description",
+            "NozzleType",
+            "Size",
+            "PressureClass",
+            "PipeDimension",
+            "Material",
+            "Standard",
+            "Fx", "Fy", "Fz", "Mx", "My", "Mz"
+        };
+
+        public static int ColumnOf(string fieldKey)
+        {
+            for (int i = 0; i < FieldKeys.Length; i++)
+                if (FieldKeys[i] == fieldKey)
+                    return i;
+            return -1;
+        }
     }
 }

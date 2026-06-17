@@ -12,8 +12,19 @@ namespace NozzleScheduleExtractor
         {
             var rows = new List<string[]>();
             rows.Add(NozzleColumns.Headers);
-            foreach (NozzleRow row in nozzleRows)
-                rows.Add(TsvWriter.ToCells(row));
+
+            // Cells (sheet-row,col, both 0-based in `rows`) carrying a Warning, for highlighting.
+            var flagged = new HashSet<string>();
+            for (int k = 0; k < nozzleRows.Count; k++)
+            {
+                rows.Add(TsvWriter.ToCells(nozzleRows[k]));
+                foreach (Diagnostic d in nozzleRows[k].Diagnostics)
+                {
+                    if (d.Severity != Severity.Warning) continue;
+                    int col = NozzleColumns.ColumnOf(d.Field);
+                    if (col >= 0) flagged.Add((k + 1) + "," + col);
+                }
+            }
 
             if (File.Exists(path)) File.Delete(path);
             using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
@@ -44,7 +55,7 @@ namespace NozzleScheduleExtractor
   <sheets><sheet name=""Nozzle Schedule"" sheetId=""1"" r:id=""rId1""/></sheets>
 </workbook>");
                 AddEntry(archive, "xl/styles.xml", StylesXml());
-                AddEntry(archive, "xl/worksheets/sheet1.xml", SheetXml(rows));
+                AddEntry(archive, "xl/worksheets/sheet1.xml", SheetXml(rows, flagged));
                 AddEntry(archive, "docProps/core.xml", @"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
 <cp:coreProperties xmlns:cp=""http://schemas.openxmlformats.org/package/2006/metadata/core-properties"" xmlns:dc=""http://purl.org/dc/elements/1.1/""><dc:creator>NozzleScheduleExtractor</dc:creator></cp:coreProperties>");
                 AddEntry(archive, "docProps/app.xml", @"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
@@ -52,7 +63,7 @@ namespace NozzleScheduleExtractor
             }
         }
 
-        private static string SheetXml(List<string[]> rows)
+        private static string SheetXml(List<string[]> rows, HashSet<string> flagged)
         {
             var sb = new StringBuilder();
             sb.Append(@"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?><worksheet xmlns=""http://schemas.openxmlformats.org/spreadsheetml/2006/main"">");
@@ -68,7 +79,7 @@ namespace NozzleScheduleExtractor
                 for (int c = 0; c < rows[r].Length; c++)
                 {
                     string cellRef = TextUtil.ColumnName(c + 1) + (r + 1).ToString(CultureInfo.InvariantCulture);
-                    string style = r == 0 ? "1" : "2";
+                    string style = r == 0 ? "1" : (flagged.Contains(r + "," + c) ? "3" : "2");
                     sb.AppendFormat("<c r=\"{0}\" t=\"inlineStr\" s=\"{1}\"><is><t>{2}</t></is></c>", cellRef, style, TextUtil.Xml(rows[r][c]));
                 }
                 sb.Append("</row>");
@@ -82,13 +93,14 @@ namespace NozzleScheduleExtractor
             return @"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
 <styleSheet xmlns=""http://schemas.openxmlformats.org/spreadsheetml/2006/main"">
   <fonts count=""2""><font><sz val=""11""/><name val=""Calibri""/></font><font><b/><sz val=""11""/><name val=""Calibri""/></font></fonts>
-  <fills count=""3""><fill><patternFill patternType=""none""/></fill><fill><patternFill patternType=""gray125""/></fill><fill><patternFill patternType=""solid""><fgColor rgb=""FFD9EAF7""/><bgColor indexed=""64""/></patternFill></fill></fills>
+  <fills count=""4""><fill><patternFill patternType=""none""/></fill><fill><patternFill patternType=""gray125""/></fill><fill><patternFill patternType=""solid""><fgColor rgb=""FFD9EAF7""/><bgColor indexed=""64""/></patternFill></fill><fill><patternFill patternType=""solid""><fgColor rgb=""FFFFF2CC""/><bgColor indexed=""64""/></patternFill></fill></fills>
   <borders count=""2""><border><left/><right/><top/><bottom/><diagonal/></border><border><left style=""thin""/><right style=""thin""/><top style=""thin""/><bottom style=""thin""/><diagonal/></border></borders>
   <cellStyleXfs count=""1""><xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""0""/></cellStyleXfs>
-  <cellXfs count=""3"">
+  <cellXfs count=""4"">
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""0"" xfId=""0""/>
     <xf numFmtId=""0"" fontId=""1"" fillId=""2"" borderId=""1"" xfId=""0"" applyFont=""1"" applyFill=""1"" applyBorder=""1"" applyAlignment=""1""><alignment horizontal=""center"" vertical=""center"" wrapText=""1""/></xf>
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""1"" xfId=""0"" applyBorder=""1"" applyAlignment=""1""><alignment horizontal=""center"" vertical=""center"" wrapText=""1""/></xf>
+    <xf numFmtId=""0"" fontId=""0"" fillId=""3"" borderId=""1"" xfId=""0"" applyFill=""1"" applyBorder=""1"" applyAlignment=""1""><alignment horizontal=""center"" vertical=""center"" wrapText=""1""/></xf>
   </cellXfs>
   <cellStyles count=""1""><cellStyle name=""Normal"" xfId=""0"" builtinId=""0""/></cellStyles>
   <dxfs count=""0""/>

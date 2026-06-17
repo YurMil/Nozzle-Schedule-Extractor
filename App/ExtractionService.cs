@@ -60,7 +60,8 @@ namespace NozzleScheduleExtractor
                 new INozzleScheduleWriter[]
                 {
                     new TsvScheduleWriter(),
-                    new XlsxScheduleWriter()
+                    new XlsxScheduleWriter(),
+                    new ReviewReportWriter()
                 });
         }
 
@@ -90,6 +91,11 @@ namespace NozzleScheduleExtractor
                 Log(log, "No nozzle load table found. Load columns will stay '-'.");
             else
                 Log(log, "Nozzle load rows found: " + loadedRows + " of " + rows.Count);
+
+            int lowConfidence = rows.Count(r => r.Confidence != Confidence.High);
+            int findings = rows.Sum(r => r.Diagnostics.Count);
+            if (findings > 0)
+                Log(log, "Validation: " + findings + " finding(s); " + lowConfidence + " row(s) need review. See review report.");
 
             string baseName = Path.GetFileNameWithoutExtension(pdf.Name);
             string xlsxPath = "";

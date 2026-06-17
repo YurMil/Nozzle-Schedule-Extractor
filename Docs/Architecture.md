@@ -67,9 +67,11 @@ The application layer owns the workflow and interfaces. Infrastructure implement
 1. `WPatternReportFinder`
 2. `FallbackReportTextExtractor` over `PdfPlumberReportTextExtractor` (primary,
    layout-aware) and `PypdfReportTextExtractor` (fallback)
-3. `VvdNozzleParser`
+3. `VvdNozzleParser` (followed by `RowValidator` for sanity checks, confidence,
+   and source-conflict detection)
 4. `TsvScheduleWriter`
-5. `XlsxScheduleWriter`
+5. `XlsxScheduleWriter` (highlights cells with validation warnings)
+6. `ReviewReportWriter` (`*_nozzle_review.tsv` listing findings + confidence)
 
 The legacy static methods `ExtractionService.RunFolder` and `ExtractionService.RunPdf` are kept as compatibility facades for the existing CLI and GUI.
 
