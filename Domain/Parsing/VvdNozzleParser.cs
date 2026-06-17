@@ -27,6 +27,7 @@ namespace NozzleScheduleExtractor
             ParseMawpFlanges(text);
             ParseNozzleLoads(text);
             ParseDetailedSections(text);
+            ParseStructuredLoadTables(text);
             ApplyCopyNotes(text);
             InferMissingValues();
 
@@ -302,6 +303,65 @@ namespace NozzleScheduleExtractor
                     section += "\n" + pages[i + 1];
                 ApplySection(Get(id), section);
             }
+        }
+
+        // Maps a VVD load-table row label to a schedule load key. The label cell carries
+        // the local symbol (Fz/My/Mx/Fl/Fc/Mt); VVD notation is remapped to Fx/Fy/Mz.
+        // Each entry is { local symbol, schedule key }.
+        private static readonly string[][] LoadSymbols =
+        {
+            new[] { "Fz", "Fz" }, new[] { "My", "My" }, new[] { "Mx", "Mx" },
+            new[] { "Fl", "Fx" }, new[] { "Fc", "Fy" }, new[] { "Mt", "Mz" }
+        };
+
+        private static readonly Regex TableBlockRx = new Regex(@"<<<TABLE>>>(?<body>.*?)<<<TABLE END>>>", RegexOptions.Singleline);
+
+        // Consumes the deterministic table blocks emitted by the pdfplumber extractor.
+        // Cells are separated by '|', so column boundaries are exact and do not depend on
+        // the fragile whitespace layout the text-based ApplyLoadTable relies on. Runs after
+        // the text passes and overwrites their load values, since structured cells are the
+        // most reliable source.
+        private void ParseStructuredLoadTables(string text)
+        {
+            if (text.IndexOf("<<<TABLE>>>", StringComparison.Ordinal) < 0)
+                return;
+
+            string[] pages = Regex.Split(text, @"<<<PAGE\s+\d+>>>");
+            foreach (string page in pages)
+            {
+                if (page.IndexOf("<<<TABLE>>>", StringComparison.Ordinal) < 0)
+                    continue;
+                string id = FindNozzleIdNearLoadTable(page);
+                if (TextUtil.IsBlank(id)) continue;
+
+                NozzleRow row = Get(id);
+                foreach (Match block in TableBlockRx.Matches(page))
+                    ApplyStructuredLoadTable(row, block.Groups["body"].Value);
+            }
+        }
+
+        private static void ApplyStructuredLoadTable(NozzleRow row, string body)
+        {
+            foreach (string raw in TextUtil.Lines(body))
+            {
+                int sep = raw.IndexOf('|');
+                if (sep < 0) continue;
+
+                string key = MapLoadSymbol(raw.Substring(0, sep));
+                if (key == null) continue;
+
+                string value = PickMaxAbsValue(raw.Substring(sep + 1).Replace('|', ' '));
+                if (!TextUtil.IsBlank(value))
+                    row.Loads[key] = value;
+            }
+        }
+
+        private static string MapLoadSymbol(string label)
+        {
+            foreach (string[] entry in LoadSymbols)
+                if (Regex.IsMatch(label, @"\b" + entry[0] + @"\b", RegexOptions.IgnoreCase))
+                    return entry[1];
+            return null;
         }
 
         private void ApplySection(NozzleRow row, string section)

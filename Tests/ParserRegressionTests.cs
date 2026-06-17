@@ -17,6 +17,7 @@ namespace NozzleScheduleExtractor
                 BomOverridesNozzleListAndCopyNotes(fixtureRoot);
                 PadDoesNotOverwriteNozzleMaterial(fixtureRoot);
                 DetailPageFillsFallbacksAndTableLoads(fixtureRoot);
+                StructuredTableOverridesGarbledText(fixtureRoot);
                 FallbackExtractorPrefersFirstUsableResult();
                 Console.WriteLine("PASS: " + _assertions + " assertions");
                 return 0;
@@ -82,6 +83,22 @@ namespace NozzleScheduleExtractor
             Equal("N.3 Fx max abs", "-3,2", n3.Loads["Fx"]);
             Equal("N.3 Fy max abs", "4,1", n3.Loads["Fy"]);
             Equal("N.3 Mz max abs", "-1,2", n3.Loads["Mz"]);
+        }
+
+        private static void StructuredTableOverridesGarbledText(string fixtureRoot)
+        {
+            // The flat-text load table carries stray leaked numbers (888, 77, ...) the way a
+            // shifted column looks once layout is lost. The structured <<<TABLE>>> block has
+            // clean cells, so the parser must prefer it and ignore the garbled text values.
+            List<NozzleRow> rows = ParseFixture(fixtureRoot, "structured_load_table.txt");
+            NozzleRow n7 = Row(rows, "N.7");
+
+            Equal("N.7 structured Fz", "-15", n7.Loads["Fz"]);
+            Equal("N.7 structured My", "-0,9", n7.Loads["My"]);
+            Equal("N.7 structured Mx", "-3,1", n7.Loads["Mx"]);
+            Equal("N.7 structured Fx", "-4,5", n7.Loads["Fx"]);
+            Equal("N.7 structured Fy", "5,2", n7.Loads["Fy"]);
+            Equal("N.7 structured Mz", "-1,6", n7.Loads["Mz"]);
         }
 
         private static void FallbackExtractorPrefersFirstUsableResult()

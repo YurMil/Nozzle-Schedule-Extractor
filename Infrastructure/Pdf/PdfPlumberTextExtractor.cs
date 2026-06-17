@@ -13,7 +13,11 @@ namespace NozzleScheduleExtractor
     /// deterministic spacing, which is what <see cref="VvdNozzleParser"/> expects.
     ///
     /// Page boundaries are emitted as "&lt;&lt;&lt;PAGE n&gt;&gt;&gt;" markers so the
-    /// output is structurally compatible with the pypdf extractor.
+    /// output is structurally compatible with the pypdf extractor. In addition, every
+    /// detected table is emitted as a deterministic block delimited by
+    /// "&lt;&lt;&lt;TABLE&gt;&gt;&gt;" / "&lt;&lt;&lt;TABLE END&gt;&gt;&gt;" with cells
+    /// joined by '|', so a consumer can read columns exactly instead of guessing them
+    /// from whitespace (see VvdNozzleParser.ParseStructuredLoadTables).
     /// </summary>
     internal static class PdfPlumberTextExtractor
     {
@@ -51,6 +55,13 @@ namespace NozzleScheduleExtractor
             "            ln.sort(key=lambda w: float(w['x0']))",
             "            out.write(' '.join(w['text'] for w in ln))",
             "            out.write('\\n')",
+            "        for table in (page.extract_tables() or []):",
+            "            out.write('<<<TABLE>>>\\n')",
+            "            for row in table:",
+            "                cells = [(c or '').replace('\\n', ' ').replace('|', ' ').strip() for c in row]",
+            "                out.write('|'.join(cells))",
+            "                out.write('\\n')",
+            "            out.write('<<<TABLE END>>>\\n')",
             ""
         });
 
