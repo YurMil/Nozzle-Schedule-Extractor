@@ -27,6 +27,9 @@ namespace NozzleScheduleExtractor
         private static readonly string Script = string.Join("\n", new[]
         {
             "import sys",
+            "import io",
+            "if hasattr(sys.stdout, 'buffer'):",
+            "    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')",
             "import pdfplumber",
             "path = sys.argv[1]",
             "tol = " + LineTolerance,
@@ -67,7 +70,7 @@ namespace NozzleScheduleExtractor
 
         public static string Extract(string pdfPath, string python)
         {
-            if (!File.Exists(python))
+            if (LooksLikePath(python) && !File.Exists(python))
                 throw new FileNotFoundException("Python not found: " + python);
 
             string scriptPath = Path.Combine(Path.GetTempPath(), "vvd_extract_plumber_" + Guid.NewGuid().ToString("N") + ".py");
@@ -86,11 +89,16 @@ namespace NozzleScheduleExtractor
                 };
                 using (var process = Process.Start(psi))
                 {
+                    // Read stderr asynchronously while draining stdout synchronously: reading both
+                    // streams with ReadToEnd() in sequence can deadlock if one buffer fills up.
+                    var error = new StringBuilder();
+                    process.ErrorDataReceived += (sender, e) => { if (e.Data != null) error.AppendLine(e.Data); };
+                    process.BeginErrorReadLine();
+
                     string output = process.StandardOutput.ReadToEnd();
-                    string error = process.StandardError.ReadToEnd();
                     process.WaitForExit();
                     if (process.ExitCode != 0)
-                        throw new Exception("pdfplumber text extraction failed: " + error.Trim());
+                        throw new Exception("pdfplumber text extraction failed: " + error.ToString().Trim());
                     return output;
                 }
             }
@@ -103,6 +111,14 @@ namespace NozzleScheduleExtractor
         private static string Quote(string value)
         {
             return "\"" + value.Replace("\"", "\\\"") + "\"";
+        }
+
+        // A bare command name (e.g. "python3") is resolved via PATH and must not be
+        // rejected by a File.Exists check; only validate actual paths.
+        private static bool LooksLikePath(string value)
+        {
+            return (value ?? "").IndexOf(Path.DirectorySeparatorChar) >= 0
+                || (value ?? "").IndexOf(Path.AltDirectorySeparatorChar) >= 0;
         }
     }
 }
