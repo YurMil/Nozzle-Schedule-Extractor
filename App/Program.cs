@@ -19,12 +19,21 @@ namespace NozzleScheduleExtractor
                 }
 
                 string input = args[0];
-                string prefix = args.Length >= 2 ? args[1] : "";
-                string python = args.Length >= 3 ? args[2] : DefaultPython;
 
-                ExtractionResult result = IsPdf(input)
-                    ? ExtractionService.RunPdf(input, python, Console.WriteLine)
-                    : ExtractionService.RunFolder(input, prefix, python, Console.WriteLine);
+                // A direct PDF run takes no folder prefix, so the optional second argument is the
+                // Python path; for a folder run it stays the prefix and Python is the third.
+                ExtractionResult result;
+                if (IsPdf(input))
+                {
+                    string python = args.Length >= 2 ? args[1] : DefaultPython;
+                    result = ExtractionService.RunPdf(input, python, Console.WriteLine);
+                }
+                else
+                {
+                    string prefix = args.Length >= 2 ? args[1] : "";
+                    string python = args.Length >= 3 ? args[2] : DefaultPython;
+                    result = ExtractionService.RunFolder(input, prefix, python, Console.WriteLine);
+                }
                 Console.WriteLine("Rows: " + result.Rows.Count);
                 Console.WriteLine("XLSX: " + result.XlsxPath);
                 Console.WriteLine("TSV: " + result.TsvPath);
@@ -53,7 +62,7 @@ namespace NozzleScheduleExtractor
                    Environment.NewLine +
                    "Usage:" + Environment.NewLine +
                    "  NozzleScheduleExtractor.exe <folder> [prefix] [python]" + Environment.NewLine +
-                   "  NozzleScheduleExtractor.exe <report.pdf> [prefix] [python]" + Environment.NewLine +
+                   "  NozzleScheduleExtractor.exe <report.pdf> [python]" + Environment.NewLine +
                    Environment.NewLine +
                    "Examples:" + Environment.NewLine +
                    @"  NozzleScheduleExtractor.exe ""C:\Reports"" W2402601" + Environment.NewLine +

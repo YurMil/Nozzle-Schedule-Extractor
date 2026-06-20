@@ -445,7 +445,9 @@ namespace NozzleScheduleExtractor
 
         private static string ExtractRingKind(string text)
         {
-            Match m = Regex.Match(text ?? "", @"(?<kind>Reinforcement Ring(?:-[A-Za-z ]+)?)", RegexOptions.IgnoreCase);
+            // Keep the suffix to a single word so an inline geometry token (e.g. "-Drain do=268")
+            // is not absorbed into the kind (which would turn the description into "Drain do").
+            Match m = Regex.Match(text ?? "", @"(?<kind>Reinforcement Ring(?:-[A-Za-z]+)?)", RegexOptions.IgnoreCase);
             return m.Success ? TextUtil.Normalize(m.Groups["kind"].Value) : "Reinforcement Ring";
         }
 
