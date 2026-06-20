@@ -64,6 +64,9 @@ namespace NozzleScheduleExtractor
 
         private static void ShowUsageDialog()
         {
+            // Never pop a modal in a non-interactive context (CI, service, headless): it would
+            // block indefinitely with no one to dismiss it.
+            if (!Environment.UserInteractive) return;
             try
             {
                 System.Windows.Forms.MessageBox.Show(

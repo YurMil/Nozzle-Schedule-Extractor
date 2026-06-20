@@ -153,6 +153,15 @@ namespace NozzleScheduleExtractor
                         if (!TextUtil.IsBlank(pendingClass)) { row.PressureClass = pendingClass; row.Observe("PressureClass", pendingClass, Source.NozzleList); }
                         if (!TextUtil.IsBlank(pendingType)) { row.NozzleType = pendingType; row.Observe("NozzleType", pendingType, Source.NozzleList); }
 
+                        // The pending flange context belongs to this nozzle only. Capture the DN
+                        // flag locally (it is used below) and clear the rest so a following id
+                        // without its own standard/class/type line cannot inherit these values.
+                        bool dn = pendingDn;
+                        pendingStd = "";
+                        pendingClass = "";
+                        pendingType = "";
+                        pendingDn = false;
+
                         string rest = idLine.Groups["rest"].Value;
                         Match inlineDn = Regex.Match(rest, @"\bDN\s*(?<size>\d+)\b", RegexOptions.IgnoreCase);
                         if (inlineDn.Success)
@@ -177,7 +186,7 @@ namespace NozzleScheduleExtractor
                             }
 
                             Match numericSize = Regex.Match(rest, @"^(?<desc>.*?)(?<size>\d+(?:[\.,]\d+)?)\s+\d+(?:[\.,]\d+)?\s+[-\d]", RegexOptions.IgnoreCase);
-                            if (numericSize.Success && !pendingDn)
+                            if (numericSize.Success && !dn)
                             {
                                 row.Size = "D" + TextUtil.Fmt(numericSize.Groups["size"].Value);
                                 row.Observe("Size", row.Size, Source.NozzleList);
@@ -191,7 +200,7 @@ namespace NozzleScheduleExtractor
                                     SetDescription(row, description);
                                 else
                                     waitingForDescription = true;
-                                waitingForNumericSize = pendingDn;
+                                waitingForNumericSize = dn;
                             }
                         }
                         continue;
@@ -311,6 +320,11 @@ namespace NozzleScheduleExtractor
                     pendingMaterialStandard = NormalizeStandard(componentMaterial.Groups["std"].Value);
                     pendingMaterial = componentMaterial.Groups["mat"].Value;
                     pendingGeometryRow = null;
+                    // A non-flange component starts here; drop any pending flange context so its
+                    // standard/type/size cannot leak into this ring or pipe.
+                    pendingFlangeStandard = "";
+                    pendingFlangeType = "";
+                    pendingFlangeRow = null;
                     continue;
                 }
 
@@ -319,6 +333,9 @@ namespace NozzleScheduleExtractor
                 {
                     pendingMaterialStandard = NormalizeStandard(materialOnly.Groups["std"].Value);
                     pendingMaterial = materialOnly.Groups["mat"].Value;
+                    pendingFlangeStandard = "";
+                    pendingFlangeType = "";
+                    pendingFlangeRow = null;
                     continue;
                 }
 
@@ -332,6 +349,8 @@ namespace NozzleScheduleExtractor
                     pendingMaterialStandard = "";
                     pendingMaterial = "";
                     pendingGeometryRow = null;
+                    // A new flange supersedes any previous flange awaiting PN/DN continuation lines.
+                    pendingFlangeRow = null;
                     continue;
                 }
 
