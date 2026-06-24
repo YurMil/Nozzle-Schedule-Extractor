@@ -16,5 +16,6 @@ if (!(Test-Path $swSldWorks)) { throw "SolidWorks interop not found: $swSldWorks
 if (!(Test-Path $swConst)) { throw "SolidWorks interop not found: $swConst" }
 $out = Join-Path $bin 'NozzleScheduleExtractor.Gui.exe'
 & $csc /nologo /target:winexe "/out:$out" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll "/r:$swSldWorks" "/r:$swConst" $sources
+if ($LASTEXITCODE -ne 0) { throw "csc.exe failed with exit code $LASTEXITCODE." }
 Copy-Item -LiteralPath $swSldWorks -Destination (Join-Path $bin 'SolidWorks.Interop.sldworks.dll') -Force
 Copy-Item -LiteralPath $swConst -Destination (Join-Path $bin 'SolidWorks.Interop.swconst.dll') -Force

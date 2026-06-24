@@ -11,4 +11,6 @@ if (!(Test-Path $csc)) { $csc = "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\
 if (!(Test-Path $csc)) { throw "csc.exe for .NET Framework 4 was not found." }
 $out = Join-Path $bin 'NozzleScheduleExtractor.Tests.exe'
 & $csc /nologo /target:exe "/out:$out" /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll $sources
+if ($LASTEXITCODE -ne 0) { throw "csc.exe failed with exit code $LASTEXITCODE." }
 & $out
+if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE." }
